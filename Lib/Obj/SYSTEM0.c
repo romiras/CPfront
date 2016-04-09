@@ -9,6 +9,7 @@
 *	from inappropriate use or modification of module SYSTEM.
 *
 *	Version 1.1  jt, 24.11.95  fixes for correct pointer arithmetic on Cray computers
+*	jt 31.1.2007  ANSI prototypes for malloc and exit in order to avoid cc warnings
 *
 */
 
@@ -19,8 +20,8 @@
 #include "varargs.h"
 #endif
 
-extern char *malloc();
-extern exit();
+extern void *malloc(unsigned long size);
+extern void exit(int status);
 
 void (*SYSTEM_Halt)();
 LONGINT SYSTEM_halt;	/* x in HALT(x) */
@@ -201,4 +202,6 @@ SYSTEM_PTR SYSTEM_NEWARR(typ, elemsz, elemalgn, nofdim, nofdyn, va_alist)
 }
 
 /* ----------- end of SYSTEM.co ------------- */
+
+#include "SYSTEM.c"
 
