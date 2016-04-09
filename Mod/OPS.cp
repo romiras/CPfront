@@ -1,24 +1,24 @@
 MODULE OfrontOPS;	(* NW, RC 6.3.89 / 18.10.92 *)		(* object model 3.6.92 *)
 
 	IMPORT OPM := OfrontOPM;
-	
+
 	CONST
 		MaxStrLen* = 256;
 		MaxIdLen = 32;
-	
+
 	TYPE
-		Name* = ARRAY MaxIdLen OF CHAR;
-		String* = ARRAY MaxStrLen OF CHAR;
+		Name* = ARRAY MaxIdLen OF SHORTCHAR;
+		String* = ARRAY MaxStrLen OF SHORTCHAR;
 
 	(* name, str, numtyp, intval, realval, lrlval are implicit results of Get *)
 
 	VAR
 		name*: Name;
 		str*: String;
-		numtyp*: INTEGER; (* 1 = char, 2 = integer, 3 = real, 4 = longreal *)
-		intval*: LONGINT;	(* integer value or string length *)
-		realval*: REAL;
-		lrlval*: LONGREAL;
+		numtyp*: SHORTINT; (* 1 = char, 2 = integer, 3 = real, 4 = longreal *)
+		intval*: INTEGER;	(* integer value or string length *)
+		realval*: SHORTREAL;
+		lrlval*: REAL;
 
 	(*symbols:
 	    |  0          1          2          3          4
@@ -57,14 +57,14 @@ MODULE OfrontOPS;	(* NW, RC 6.3.89 / 18.10.92 *)		(* object model 3.6.92 *)
 		var = 60; procedure = 61; import = 62; module = 63; eof = 64;
 
 	VAR
-		ch: CHAR;     (*current character*)
+		ch: SHORTCHAR;     (*current character*)
 
-	PROCEDURE err(n: INTEGER);
+	PROCEDURE err(n: SHORTINT);
 	BEGIN OPM.err(n)
 	END err;
-	
-	PROCEDURE Str(VAR sym: SHORTINT);
-		VAR i: INTEGER; och: CHAR;
+
+	PROCEDURE Str(VAR sym: BYTE);
+		VAR i: SHORTINT; och: SHORTCHAR;
 	BEGIN i := 0; och := ch;
 		LOOP OPM.Get(ch);
 			IF ch = och THEN EXIT END ;
@@ -79,38 +79,38 @@ MODULE OfrontOPS;	(* NW, RC 6.3.89 / 18.10.92 *)		(* object model 3.6.92 *)
 		END
 	END Str;
 
-	PROCEDURE Identifier(VAR sym: SHORTINT);
-		VAR i: INTEGER;
+	PROCEDURE Identifier(VAR sym: BYTE);
+		VAR i: SHORTINT;
 	BEGIN i := 0;
 		REPEAT
 			name[i] := ch; INC(i); OPM.Get(ch)
-		UNTIL (ch < "0") OR ("9" < ch) & (CAP(ch) < "A") OR ("Z" < CAP(ch)) & (ch # "_") OR (i = MaxIdLen);
+		UNTIL (ch < "0") OR ("9" < ch) & (CAP(ch) < "A") OR ("Z" < CAP(ch)) OR (i = MaxIdLen);
 		IF i = MaxIdLen THEN err(240); DEC(i) END ;
 		name[i] := 0X; sym := ident
 	END Identifier;
 
 	PROCEDURE Number;
-		VAR i, m, n, d, e: INTEGER; dig: ARRAY 24 OF CHAR; f: LONGREAL; expCh: CHAR; neg: BOOLEAN;
+		VAR i, m, n, d, e: SHORTINT; dig: ARRAY 24 OF SHORTCHAR; f: REAL; expCh: SHORTCHAR; neg: BOOLEAN;
 
-		PROCEDURE Ten(e: INTEGER): LONGREAL;
-			VAR x, p: LONGREAL;
+		PROCEDURE Ten(e: SHORTINT): REAL;
+			VAR x, p: REAL;
 		BEGIN x := 1; p := 10;
 			WHILE e > 0 DO
 				IF ODD(e) THEN x := x*p END;
-				e := e DIV 2;
+				e := SHORT(e DIV 2);
 				IF e > 0 THEN p := p*p END (* prevent overflow *)
 			END;
 			RETURN x
 		END Ten;
 
-		PROCEDURE Ord(ch: CHAR; hex: BOOLEAN): INTEGER;
+		PROCEDURE Ord(ch: SHORTCHAR; hex: BOOLEAN): SHORTINT;
 		BEGIN (* ("0" <= ch) & (ch <= "9") OR ("A" <= ch) & (ch <= "F") *)
-			IF ch <= "9" THEN RETURN ORD(ch) - ORD("0")
-			ELSIF hex THEN RETURN ORD(ch) - ORD("A") + 10
+			IF ch <= "9" THEN RETURN SHORT(ORD(ch) - ORD("0"))
+			ELSIF hex THEN RETURN SHORT(ORD(ch) - ORD("A") + 10)
 			ELSE err(2); RETURN 0
 			END
 		END Ord;
-		
+
 	BEGIN (* ("0" <= ch) & (ch <= "9") *)
 		i := 0; m := 0; n := 0; d := 0;
 		LOOP (* read mantissa *)
@@ -143,7 +143,7 @@ MODULE OfrontOPS;	(* NW, RC 6.3.89 / 18.10.92 *)		(* object model 3.6.92 *)
 					END
 				ELSE (* decimal *) numtyp := integer;
 					WHILE i < n DO d := Ord(dig[i], FALSE); INC(i);
-						IF intval <= (MAX(LONGINT) - d) DIV 10 THEN intval := intval*10 + d
+						IF intval <= (MAX(INTEGER) - d) DIV 10 THEN intval := intval*10 + d
 						ELSE err(203)
 						END
 					END
@@ -159,25 +159,25 @@ MODULE OfrontOPS;	(* NW, RC 6.3.89 / 18.10.92 *)		(* object model 3.6.92 *)
 				END;
 				IF ("0" <= ch) & (ch <= "9") THEN
 					REPEAT n := Ord(ch, FALSE); OPM.Get(ch);
-						IF e <= (MAX(INTEGER) - n) DIV 10 THEN e := e*10 + n
+						IF e <= (MAX(SHORTINT) - n) DIV 10 THEN e := SHORT(e*10 + n)
 						ELSE err(203)
 						END
 					UNTIL (ch < "0") OR ("9" < ch);
-					IF neg THEN e := -e END
+					IF neg THEN e := SHORT(-e) END
 				ELSE err(2)
 				END
 			END;
 			DEC(e, i-d-m); (* decimal point shift *)
 			IF expCh = "E" THEN numtyp := real;
 				IF (1-OPM.MaxRExp < e) & (e <= OPM.MaxRExp) THEN
-					IF e < 0 THEN realval := SHORT(f / Ten(-e))
+					IF e < 0 THEN realval := SHORT(f / Ten(SHORT(-e)))
 					ELSE realval := SHORT(f * Ten(e))
 					END
 				ELSE err(203)
 				END
 			ELSE numtyp := longreal;
 				IF (1-OPM.MaxLExp < e) & (e <= OPM.MaxLExp) THEN
-					IF e < 0 THEN lrlval := f / Ten(-e)
+					IF e < 0 THEN lrlval := f / Ten(SHORT(-e))
 					ELSE lrlval := f * Ten(e)
 					END
 				ELSE err(203)
@@ -186,8 +186,8 @@ MODULE OfrontOPS;	(* NW, RC 6.3.89 / 18.10.92 *)		(* object model 3.6.92 *)
 		END
 	END Number;
 
-	PROCEDURE Get*(VAR sym: SHORTINT);
-		VAR s: SHORTINT;
+	PROCEDURE Get*(VAR sym: BYTE);
+		VAR s: BYTE;
 
 		PROCEDURE Comment;	(* do not read after end of file *)
 		BEGIN OPM.Get(ch);
@@ -293,7 +293,7 @@ MODULE OfrontOPS;	(* NW, RC 6.3.89 / 18.10.92 *)		(* object model 3.6.92 *)
 						IF name = "WHILE" THEN s := while
 						ELSIF name = "WITH" THEN s := with
 						END
-			| "G".."H", "J", "K", "Q", "S", "X".."Z", "_": Identifier(s)
+			| "G".."H", "J", "K", "Q", "S", "X".."Z": Identifier(s)
 			| "["  : s := lbrak; OPM.Get(ch)
 			| "]"  : s := rbrak; OPM.Get(ch)
 			| "^"  : s := arrow; OPM.Get(ch)

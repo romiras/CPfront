@@ -1,12 +1,7 @@
-MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96 
-
-	26.7.2002 jt bug fix in Len: wrong result if called for fixed Array
-	31.1.2007 jt synchronized with BlackBox version, in particular:
-		various promotion rules changed (long) => (LONGINT), xxxL avoided
-*)
+MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96 *)
 
 	IMPORT OPT := OfrontOPT, OPC := OfrontOPC, OPM := OfrontOPM, OPS := OfrontOPS;
-	
+
 	CONST
 		(* object modes *)
 		Var = 1; VarPar = 2; Fld = 4; Typ = 5; LProc = 6; XProc = 7;
@@ -84,21 +79,21 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96
 		internal = 0;
 
 	TYPE
-		ExitInfo = RECORD level, label: INTEGER END ;
+		ExitInfo = RECORD level, label: SHORTINT END ;
 
 
 	VAR
 		assert, inxchk, mainprog, ansi: BOOLEAN;
-		stamp: INTEGER;	(* unique number for nested objects *)
-		recno: INTEGER;	(* number of anonymous record types *)
+		stamp: SHORTINT;	(* unique number for nested objects *)
+		recno: SHORTINT;	(* number of anonymous record types *)
 
 		exit: ExitInfo;	(* to check if EXIT is simply a break *)
-		nofExitLabels: INTEGER;
+		nofExitLabels: SHORTINT;
 		naturalAlignment: BOOLEAN;
 
 
-	PROCEDURE NaturalAlignment(size, max: LONGINT): LONGINT;
-		VAR i: LONGINT;
+	PROCEDURE NaturalAlignment(size, max: INTEGER): INTEGER;
+		VAR i: INTEGER;
 	BEGIN
 		IF size >= max THEN RETURN max
 		ELSE i := 1;
@@ -108,7 +103,7 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96
 	END NaturalAlignment;
 
 	PROCEDURE TypSize*(typ: OPT.Struct);
-		VAR f, c: INTEGER; offset, size, base, fbase, off0: LONGINT;
+		VAR f, c: SHORTINT; offset, size, base, fbase, off0: INTEGER;
 			fld: OPT.Object; btyp: OPT.Struct;
 	BEGIN
 		IF typ = OPT.undftyp THEN OPM.err(58)
@@ -134,7 +129,7 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96
 				IF (typ^.strobj = NIL) & (typ^.align MOD 10000H = 0) THEN INC(recno); INC(base, recno * 10000H) END ;
 				typ^.size := offset; typ^.align := base;
 				(* encode the trailing gap into the symbol table to allow dense packing of extended records *)
-				typ^.sysflag := typ^.sysflag MOD 100H + SHORT((offset - off0)*100H)	
+				typ^.sysflag := SHORT(typ^.sysflag MOD 100H + SHORT((offset - off0)*100H))
 			ELSIF c = Array THEN
 				TypSize(typ^.BaseTyp);
 				typ^.size := typ^.n * typ^.BaseTyp^.size;
@@ -162,11 +157,11 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96
 		mainprog := OPM.mainprog IN OPM.opt;
 		ansi := OPM.ansi IN OPM.opt
 	END Init;
-	
+
 	PROCEDURE ^Traverse (obj, outerScope: OPT.Object; exported: BOOLEAN);
 
 	PROCEDURE GetTProcNum(obj: OPT.Object);
-		VAR oldPos: LONGINT; typ: OPT.Struct; redef: OPT.Object;
+		VAR oldPos: INTEGER; typ: OPT.Struct; redef: OPT.Object;
 	BEGIN
 		oldPos := OPM.errpos; OPM.errpos := obj^.scope^.adr;
 		typ := obj^.link^.typ;
@@ -188,19 +183,19 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96
 	END TraverseRecord;
 
 	PROCEDURE Stamp(VAR s: OPS.Name);
-		VAR i, j, k: INTEGER; n: ARRAY 10 OF CHAR;
+		VAR i, j, k: SHORTINT; n: ARRAY 10 OF SHORTCHAR;
 	BEGIN INC(stamp);
 		i := 0; j := stamp;
 		WHILE s[i] # 0X DO INC(i) END ;
 		IF i > 25 THEN i := 25 END ;
 		s[i] := "_"; s[i+1] := "_"; INC(i, 2); k := 0;
-		REPEAT n[k] := CHR((j MOD 10) + ORD("0")); j := j DIV 10; INC(k) UNTIL j = 0;
+		REPEAT n[k] := SHORT(CHR((j MOD 10) + ORD("0"))); j := SHORT(j DIV 10); INC(k) UNTIL j = 0;
 		REPEAT DEC(k); s[i] := n[k]; INC(i) UNTIL k = 0;
 		s[i] := 0X;
 	END Stamp;
 
 	PROCEDURE Traverse (obj, outerScope: OPT.Object; exported: BOOLEAN);
-		VAR mode: INTEGER; scope: OPT.Object; typ: OPT.Struct;
+		VAR mode: SHORTINT; scope: OPT.Object; typ: OPT.Struct;
 	BEGIN
 		IF obj # NIL THEN
 			Traverse(obj^.left, outerScope, exported);
@@ -253,7 +248,7 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96
 
 (* ____________________________________________________________________________________________________________________________________________________________________ *)
 
-	PROCEDURE Precedence (class, subclass, form, comp: INTEGER): INTEGER;
+	PROCEDURE Precedence (class, subclass, form, comp: SHORTINT): SHORTINT;
 	BEGIN
 		CASE class OF
 			Nconst, Nvar, Nfield, Nindex, Nproc, Ncall:
@@ -300,12 +295,12 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96
 		END;
 	END Precedence;
 
-	PROCEDURE^ expr (n: OPT.Node; prec: INTEGER);
-	PROCEDURE^ design(n: OPT.Node; prec: INTEGER);
+	PROCEDURE^ expr (n: OPT.Node; prec: SHORTINT);
+	PROCEDURE^ design(n: OPT.Node; prec: SHORTINT);
 
-	PROCEDURE Len(n: OPT.Node; dim: LONGINT);
+	PROCEDURE Len(n: OPT.Node; dim: INTEGER);
 	BEGIN
-		WHILE (n^.class = Nindex) & (n^.typ^.comp = DynArr(*26.7.2002*)) DO INC(dim); n := n^.left END ;
+		WHILE n^.class = Nindex DO INC(dim); n := n^.left END ;
 		IF (n^.class = Nderef) & (n^.typ^.comp = DynArr) THEN
 			design(n^.left, 10); OPM.WriteString("->len["); OPM.WriteInt(dim); OPM.Write("]")
 		ELSE
@@ -320,7 +315,7 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96
 		END
 	END SideEffects;
 
-	PROCEDURE Entier(n: OPT.Node; prec: INTEGER);
+	PROCEDURE Entier(n: OPT.Node; prec: SHORTINT);
 	BEGIN
 		IF n^.typ^.form IN {Real, LReal} THEN
 			OPM.WriteString(EntierFunc); expr(n, MinPrec); OPM.Write(CloseParen)
@@ -328,12 +323,12 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96
 		END
 	END Entier;
 
-	PROCEDURE Convert(n: OPT.Node; form, prec: INTEGER);
-		VAR from: INTEGER;
+	PROCEDURE Convert(n: OPT.Node; form, prec: SHORTINT);
+		VAR from: SHORTINT;
 	BEGIN from := n^.typ^.form;
 		IF form = Set THEN OPM.WriteString(SetOfFunc); Entier(n, MinPrec); OPM.Write(CloseParen)
 		ELSIF form = LInt THEN
-			IF from < LInt THEN OPM.WriteString("(LONGINT)") END ;
+			IF from < LInt THEN OPM.WriteString("(long)") END ;
 			Entier(n, 9)
 		ELSIF form = Int THEN
 			IF from < Int THEN OPM.WriteString("(int)"); expr(n, 9)
@@ -380,7 +375,7 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96
 		END
 	END TypeOf;
 
-	PROCEDURE Index(n, d: OPT.Node; prec, dim: INTEGER);
+	PROCEDURE Index(n, d: OPT.Node; prec, dim: SHORTINT);
 	BEGIN
 		IF ~inxchk
 		OR (n^.right^.class = Nconst) & ((n^.right^.conval^.intval = 0) OR (n^.left^.typ^.comp # DynArr)) THEN
@@ -391,10 +386,10 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96
 		END
 	END Index;
 
-	PROCEDURE design(n: OPT.Node; prec: INTEGER);
+	PROCEDURE design(n: OPT.Node; prec: SHORTINT);
 		VAR obj: OPT.Object; typ: OPT.Struct;
-			class, designPrec, comp: INTEGER;
-			d, x: OPT.Node; dims, i: INTEGER;
+			class, designPrec, comp: SHORTINT;
+			d, x: OPT.Node; dims, i: SHORTINT;
 	BEGIN
 		comp := n^.typ^.comp; obj := n^.obj; class := n^.class;
 		designPrec := Precedence(class, n^.subcl, n^.typ^.form, comp);
@@ -452,7 +447,7 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96
 		|	Nguard:
 					typ := n^.typ; obj := n^.left^.obj;
 					IF OPM.typchk IN OPM.opt THEN
-						IF typ^.comp = Record THEN OPM.WriteString(GuardRecFunc); 
+						IF typ^.comp = Record THEN OPM.WriteString(GuardRecFunc);
 							IF obj^.mnolev # OPM.level THEN (*intermediate level var-par record*)
 								OPM.WriteStringVar(obj^.scope^.name); OPM.WriteString("__curr->"); OPC.Ident(obj)
 							ELSE (*local var-par record*)
@@ -475,7 +470,7 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96
 		|	Neguard:
 					IF OPM.typchk IN OPM.opt THEN
 						IF n^.left^.class = Nvarpar THEN OPM.WriteString("__GUARDEQR(");
-							OPC.CompleteIdent(n^.left^.obj); OPM.WriteString(Comma); TypeOf(n^.left); 
+							OPC.CompleteIdent(n^.left^.obj); OPM.WriteString(Comma); TypeOf(n^.left);
 						ELSE OPM.WriteString("__GUARDEQP("); expr(n^.left^.left, MinPrec)
 						END ; (* __GUARDEQx includes deref *)
 						OPM.WriteString(Comma); OPC.Ident(n^.left^.typ^.strobj); OPM.Write(")")
@@ -489,7 +484,7 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96
 	END design;
 
 	PROCEDURE ActualPar(n: OPT.Node; fp: OPT.Object);
-		VAR typ, aptyp: OPT.Struct; comp, form, mode, prec, dim: INTEGER;
+		VAR typ, aptyp: OPT.Struct; comp, form, mode, prec, dim: SHORTINT;
 	BEGIN
 		OPM.Write(OpenParen);
 		WHILE n # NIL DO typ := fp^.typ;
@@ -511,7 +506,7 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96
 					IF (form IN {Real, LReal}) & (n^.typ^.form IN {SInt, Int, LInt}) THEN (* real promotion *)
 						OPM.WriteString("(double)"); prec := 9
 					ELSIF (form = LInt) & (n^.typ^.form < LInt) THEN (* integral promotion *)
-						OPM.WriteString("(LONGINT)"); prec := 9
+						OPM.WriteString("(long)"); prec := 9
 					END
 				END
 			ELSIF ansi THEN
@@ -523,12 +518,12 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96
 			END ;
 			IF (form = LInt) & (n^.class = Nconst)
 			& (n^.conval^.intval <= OPM.MaxInt) & (n^.conval^.intval >= OPM.MinInt) THEN
-				OPM.PromoteIntConstToLInt()
+				OPM.Write("L")
 			ELSIF (comp = Record) & (mode = VarPar) THEN
 				OPM.WriteString(", "); TypeOf(n)
 			ELSIF comp = DynArr THEN
 				IF n^.class = Nconst THEN (* ap is string constant *)
-					OPM.WriteString(Comma); OPM.WriteString("(LONGINT)"); OPM.WriteInt(n^.conval^.intval2)
+					OPM.WriteString(Comma); OPM.WriteInt(n^.conval^.intval2); OPM.Write("L")
 				ELSE
 					aptyp := n^.typ; dim := 0;
 					WHILE (typ^.comp = DynArr) & (typ^.BaseTyp^.form # Byte) DO
@@ -540,7 +535,7 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96
 						WHILE aptyp^.comp = DynArr DO
 							Len(n, dim); OPM.WriteString(" * "); INC(dim); aptyp := aptyp^.BaseTyp
 						END ;
-						OPM.WriteInt(aptyp^.size); OPM.PromoteIntConstToLInt()
+						OPM.WriteInt(aptyp^.size); OPM.Write("L")
 					END
 				END
 			END ;
@@ -558,12 +553,12 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96
 		RETURN obj
 	END SuperProc;
 
-	PROCEDURE expr (n: OPT.Node; prec: INTEGER);
+	PROCEDURE expr (n: OPT.Node; prec: SHORTINT);
 		VAR
-			class: INTEGER;
-			subclass: INTEGER;
-			form: INTEGER;
-			exprPrec: INTEGER;
+			class: SHORTINT;
+			subclass: SHORTINT;
+			form: SHORTINT;
+			exprPrec: SHORTINT;
 			typ: OPT.Struct;
 			l, r: OPT.Node;
 			proc: OPT.Object;
@@ -587,7 +582,7 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96
 					|	minus:
 								IF form = Set THEN OPM.Write("~") ELSE OPM.Write("-"); END ;
 								expr(l, exprPrec)
-					|	is:	
+					|	is:
 								typ := n^.obj^.typ;
 								IF l^.typ^.comp = Record THEN OPM.WriteString(IsFunc); OPC.TypeOf(l^.obj)
 								ELSE OPM.WriteString(IsPFunc); expr(l, MinPrec); typ := typ^.BaseTyp
@@ -612,7 +607,7 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96
 					|	odd:
 								OPM.WriteString("__ODD("); expr(l, MinPrec); OPM.Write(CloseParen)
 					|	adr: (*SYSTEM*)
-								OPM.WriteString("(LONGINT)");
+								OPM.WriteString("(long)");
 								IF l^.class = Nvarpar THEN OPC.CompleteIdent(l^.obj)
 								ELSE
 									IF (l^.typ^.form # String) & ~(l^.typ^.comp IN {Array, DynArr}) THEN OPM.Write("&") END ;
@@ -728,7 +723,7 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96
 		|	Ncall:
 					IF (l^.obj # NIL) & (l^.obj^.mode = TProc) THEN
 						IF l^.subcl = super THEN proc := SuperProc(n)
-						ELSE OPM.WriteString("__"); proc := OPC.BaseTProc(l^.obj) 
+						ELSE OPM.WriteString("__"); proc := OPC.BaseTProc(l^.obj)
 						END ;
 						OPC.Ident(proc);
 						n^.obj := proc^.link
@@ -747,12 +742,12 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96
 	PROCEDURE^ stat(n: OPT.Node; outerProc: OPT.Object);
 
 	PROCEDURE IfStat(n: OPT.Node; withtrap: BOOLEAN; outerProc: OPT.Object);
-		VAR if: OPT.Node; obj: OPT.Object; typ: OPT.Struct; adr: LONGINT;
+		VAR if: OPT.Node; obj: OPT.Object; typ: OPT.Struct; adr: INTEGER;
 	BEGIN	(* n^.class IN {Nifelse, Nwith} *)
 		if := n^.left; (* name := ""; *)
 		WHILE if # NIL DO
 			OPM.WriteString("if "); expr(if^.left, MaxPrec);	(* if *)
-			OPM.Write(Blank); OPC.BegBlk; 
+			OPM.Write(Blank); OPC.BegBlk;
 			IF (n^.class = Nwith) & (if^.left^.left # NIL) THEN (* watch out for const expr *)
 				obj := if^.left^.left^.obj; typ := obj^.typ; adr := obj^.adr;
 				IF typ^.comp = Record THEN
@@ -782,7 +777,7 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96
 
 	PROCEDURE CaseStat(n: OPT.Node; outerProc: OPT.Object);
 		VAR switchCase, label: OPT.Node;
-			low, high: LONGINT; form, i: INTEGER;
+			low, high: INTEGER; form, i: SHORTINT;
 	BEGIN
 		OPM.WriteString("switch "); expr(n^.left, MaxPrec);
 		OPM.Write(Blank); OPC.BegBlk;
@@ -826,7 +821,7 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96
 	END ImplicitReturn;
 
 	PROCEDURE NewArr(d, x: OPT.Node);
-		VAR typ, base: OPT.Struct; nofdim, nofdyn: INTEGER;
+		VAR typ, base: OPT.Struct; nofdim, nofdyn: SHORTINT;
 	BEGIN
 		typ := d^.typ^.BaseTyp; base := typ; nofdim := 0; nofdyn := 0;
 		WHILE base^.comp = DynArr DO INC(nofdim); INC(nofdyn); base := base^.BaseTyp END ;
@@ -837,18 +832,18 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96
 		ELSIF base^.form = Pointer THEN OPM.WriteString("POINTER__typ")
 		ELSE OPM.WriteString("NIL")
 		END ;
-		OPM.WriteString(", "); OPM.WriteInt(base^.size); OPM.PromoteIntConstToLInt();	(* element size *)
+		OPM.WriteString(", "); OPM.WriteInt(base^.size); OPM.Write("L");	(* element size *)
 		OPM.WriteString(", "); OPM.WriteInt(OPC.Base(base));	(* element alignment *)
-		OPM.WriteString(", "); OPM.WriteInt(nofdim);	(* total number of dimensions = number of additional parameters *) 
+		OPM.WriteString(", "); OPM.WriteInt(nofdim);	(* total number of dimensions = number of additional parameters *)
 		OPM.WriteString(", "); OPM.WriteInt(nofdyn);	(* number of dynamic dimensions *)
 		WHILE typ # base DO
 			OPM.WriteString(", ");
 			IF typ^.comp = DynArr THEN
-				IF x^.class = Nconst THEN expr(x, MinPrec); OPM.PromoteIntConstToLInt()
-				ELSE OPM.WriteString("(LONGINT)"); expr(x, 10)
+				IF x^.class = Nconst THEN expr(x, MinPrec); OPM.Write("L")
+				ELSE OPM.WriteString("(long)"); expr(x, 10)
 				END ;
 				x := x^.link
-			ELSE OPM.WriteInt(typ^.n); OPM.PromoteIntConstToLInt()
+			ELSE OPM.WriteInt(typ^.n); OPM.Write("L")
 			END ;
 			typ := typ^.BaseTyp
 		END ;
