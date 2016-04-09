@@ -57,31 +57,31 @@ MODULE OfrontOPP;	(* NW, RC 6.3.89 / 10.2.94 *)	(* object model 4.12.93 *)
 	TYPE
 		CaseTable = ARRAY OPM.MaxCases OF
 			RECORD
-				low, high: LONGINT
+				low, high: INTEGER
 			END ;
 		
 	VAR
-		sym, level: SHORTINT;
-		LoopLevel: INTEGER;
+		sym, level: BYTE;
+		LoopLevel: SHORTINT;
 		TDinit, lastTDinit: OPT.Node;
-		nofFwdPtr: INTEGER;
+		nofFwdPtr: SHORTINT;
 		FwdPtr: ARRAY 64 OF OPT.Struct;
 
 	PROCEDURE^ Type(VAR typ, banned: OPT.Struct);
 	PROCEDURE^ Expression(VAR x: OPT.Node);
 	PROCEDURE^ Block(VAR procdec, statseq: OPT.Node);
 
-	PROCEDURE err(n: INTEGER);
+	PROCEDURE err(n: SHORTINT);
 	BEGIN OPM.err(n)
 	END err;
 
-	PROCEDURE CheckSym(s: INTEGER);
+	PROCEDURE CheckSym(s: SHORTINT);
 	BEGIN
 		IF sym = s THEN OPS.Get(sym) ELSE OPM.err(s) END
 	END CheckSym;
 
 	PROCEDURE qualident(VAR id: OPT.Object);
-		VAR obj: OPT.Object; lev: SHORTINT;
+		VAR obj: OPT.Object; lev: BYTE;
 	BEGIN (*sym = ident*)
 		OPT.Find(obj); OPS.Get(sym);
 		IF (sym = period) & (obj # NIL) & (obj^.mode = Mod) THEN
@@ -96,7 +96,7 @@ MODULE OfrontOPP;	(* NW, RC 6.3.89 / 10.2.94 *)	(* object model 4.12.93 *)
 		ELSE lev := obj^.mnolev;
 			IF (obj^.mode IN {Var, VarPar}) & (lev # level) THEN
 				obj^.leaf := FALSE;
-				IF lev > 0 THEN OPB.StaticLink(level-lev) END
+				IF lev > 0 THEN OPB.StaticLink(SHORT(SHORT(level-lev))) END
 			END
 		END ;
 		id := obj
@@ -109,7 +109,7 @@ MODULE OfrontOPP;	(* NW, RC 6.3.89 / 10.2.94 *)	(* object model 4.12.93 *)
 		END
 	END ConstExpression;
 
-	PROCEDURE CheckMark(VAR vis: SHORTINT);
+	PROCEDURE CheckMark(VAR vis: BYTE);
 	BEGIN OPS.Get(sym);
 		IF (sym = times) OR (sym = minus) THEN
 			IF level > 0 THEN err(47) END ;
@@ -119,8 +119,8 @@ MODULE OfrontOPP;	(* NW, RC 6.3.89 / 10.2.94 *)	(* object model 4.12.93 *)
 		END
 	END CheckMark;
 	
-	PROCEDURE CheckSysFlag(VAR sysflag: INTEGER; default: INTEGER);
-		VAR x: OPT.Node; sf: LONGINT;
+	PROCEDURE CheckSysFlag(VAR sysflag: SHORTINT; default: SHORTINT);
+		VAR x: OPT.Node; sf: INTEGER;
 	BEGIN
 		IF sym = lbrak THEN OPS.Get(sym); ConstExpression(x);
 			IF x^.typ^.form IN intSet THEN sf := x^.conval^.intval;
@@ -134,7 +134,7 @@ MODULE OfrontOPP;	(* NW, RC 6.3.89 / 10.2.94 *)	(* object model 4.12.93 *)
 
 	PROCEDURE RecordType(VAR typ, banned: OPT.Struct);
 		VAR fld, first, last, base: OPT.Object;
-			ftyp: OPT.Struct; sysflag: INTEGER;
+			ftyp: OPT.Struct; sysflag: SHORTINT;
 	BEGIN typ := OPT.NewStr(Comp, Record); typ^.BaseTyp := NIL;
 		CheckSysFlag(sysflag, -1);
 		IF sym = lparen THEN
@@ -144,7 +144,7 @@ MODULE OfrontOPP;	(* NW, RC 6.3.89 / 10.2.94 *)	(* object model 4.12.93 *)
 				IF (base^.mode = Typ) & (base^.typ^.comp = Record) THEN
 					IF base^.typ = banned THEN err(58)
 					ELSE base^.typ^.pvused := TRUE;
-						typ^.BaseTyp := base^.typ; typ^.extlev := base^.typ^.extlev + 1; typ^.sysflag := base^.typ^.sysflag
+						typ^.BaseTyp := base^.typ; typ^.extlev := SHORT(SHORT(base^.typ^.extlev + 1)); typ^.sysflag := base^.typ^.sysflag
 					END
 				ELSE err(52)
 				END
@@ -190,7 +190,7 @@ MODULE OfrontOPP;	(* NW, RC 6.3.89 / 10.2.94 *)	(* object model 4.12.93 *)
 	END RecordType;
 
 	PROCEDURE ArrayType(VAR typ, banned: OPT.Struct);
-		VAR x: OPT.Node; n: LONGINT; sysflag: INTEGER;
+		VAR x: OPT.Node; n: INTEGER; sysflag: SHORTINT;
 	BEGIN CheckSysFlag(sysflag, 0);
 		IF sym = of THEN	(*dynamic array*)
 			typ := OPT.NewStr(Comp, DynArr); typ^.mno := 0; typ^.sysflag := sysflag;
@@ -226,7 +226,7 @@ MODULE OfrontOPP;	(* NW, RC 6.3.89 / 10.2.94 *)	(* object model 4.12.93 *)
 				IF nofFwdPtr < LEN(FwdPtr) THEN FwdPtr[nofFwdPtr] := typ; INC(nofFwdPtr)
 				ELSE err(224)
 				END ;
-				typ^.link := OPT.NewObj(); COPY(OPS.name, typ^.link^.name);
+				typ^.link := OPT.NewObj(); typ^.link^.name := OPS.name$;
 				typ^.BaseTyp := OPT.undftyp; OPS.Get(sym) (*forward ref*)
 			ELSE qualident(id);
 				IF id^.mode = Typ THEN
@@ -245,7 +245,7 @@ MODULE OfrontOPP;	(* NW, RC 6.3.89 / 10.2.94 *)	(* object model 4.12.93 *)
 	END PointerType;
 	
 	PROCEDURE FormalParameters(VAR firstPar: OPT.Object; VAR resTyp: OPT.Struct);
-		VAR mode: SHORTINT;
+		VAR mode: BYTE;
 				par, first, last, res: OPT.Object; typ: OPT.Struct;
 	BEGIN first := NIL; last := firstPar;
 		IF (sym = ident) OR (sym = var) THEN
@@ -408,7 +408,7 @@ MODULE OfrontOPP;	(* NW, RC 6.3.89 / 10.2.94 *)	(* object model 4.12.93 *)
 	END ActualParameters;
 
 	PROCEDURE StandProcCall(VAR x: OPT.Node);
-		VAR y: OPT.Node; m: SHORTINT; n: INTEGER;
+		VAR y: OPT.Node; m: BYTE; n: SHORTINT;
 	BEGIN m := SHORT(SHORT(x^.obj^.adr)); n := 0;
 		IF sym = lparen THEN OPS.Get(sym);
 			IF sym # rparen THEN
@@ -498,7 +498,7 @@ MODULE OfrontOPP;	(* NW, RC 6.3.89 / 10.2.94 *)	(* object model 4.12.93 *)
 	END Factor;
 
 	PROCEDURE Term(VAR x: OPT.Node);
-		VAR y: OPT.Node; mulop: SHORTINT;
+		VAR y: OPT.Node; mulop: BYTE;
 	BEGIN Factor(x);
 		WHILE (times <= sym) & (sym <= and) DO
 			mulop := sym; OPS.Get(sym);
@@ -507,7 +507,7 @@ MODULE OfrontOPP;	(* NW, RC 6.3.89 / 10.2.94 *)	(* object model 4.12.93 *)
 	END Term;
 
 	PROCEDURE SimpleExpression(VAR x: OPT.Node);
-		VAR y: OPT.Node; addop: SHORTINT;
+		VAR y: OPT.Node; addop: BYTE;
 	BEGIN
 		IF sym = minus THEN OPS.Get(sym); Term(x); OPB.MOp(minus, x)
 		ELSIF sym = plus THEN OPS.Get(sym); Term(x); OPB.MOp(plus, x)
@@ -520,7 +520,7 @@ MODULE OfrontOPP;	(* NW, RC 6.3.89 / 10.2.94 *)	(* object model 4.12.93 *)
 	END SimpleExpression;
 
 	PROCEDURE Expression(VAR x: OPT.Node);
-		VAR y: OPT.Node; obj: OPT.Object; relation: SHORTINT;
+		VAR y: OPT.Node; obj: OPT.Object; relation: BYTE;
 	BEGIN SimpleExpression(x);
 		IF (eql <= sym) & (sym <= geq) THEN
 			relation := sym; OPS.Get(sym);
@@ -539,7 +539,7 @@ MODULE OfrontOPP;	(* NW, RC 6.3.89 / 10.2.94 *)	(* object model 4.12.93 *)
 		END
 	END Expression;
 
-	PROCEDURE Receiver(VAR mode: SHORTINT; VAR name: OPS.Name; VAR typ, rec: OPT.Struct);
+	PROCEDURE Receiver(VAR mode: BYTE; VAR name: OPS.Name; VAR typ, rec: OPT.Struct);
 		VAR obj: OPT.Object;
 	BEGIN typ := OPT.undftyp; rec := NIL;
 		IF sym = var THEN OPS.Get(sym); mode := VarPar ELSE mode := Var END ;
@@ -571,27 +571,27 @@ MODULE OfrontOPP;	(* NW, RC 6.3.89 / 10.2.94 *)	(* object model 4.12.93 *)
 	PROCEDURE ProcedureDeclaration(VAR x: OPT.Node);
 		VAR proc, fwd: OPT.Object;
 			name: OPS.Name;
-			mode, vis: SHORTINT;
+			mode, vis: BYTE;
 			forward: BOOLEAN;
 
 		PROCEDURE GetCode;
-			VAR ext: OPT.ConstExt; n: INTEGER; c: LONGINT;
+			VAR ext: OPT.ConstExt; n: SHORTINT; c: INTEGER;
 		BEGIN
 			ext := OPT.NewExt(); proc^.conval^.ext := ext; n := 0;
 			IF sym = string THEN
 				WHILE OPS.str[n] # 0X DO ext[n+1] := OPS.str[n]; INC(n) END ;
-				ext^[0] := CHR(n); OPS.Get(sym)
+				ext^[0] := SHORT(CHR(n)); OPS.Get(sym)
 			ELSE
 				LOOP
 					IF sym = number THEN c := OPS.intval; INC(n);
 						IF (c < 0) OR (c > 255) OR (n = OPT.MaxConstLen) THEN
 							err(64); c := 1; n := 1
 						END ;
-						OPS.Get(sym); ext^[n] := CHR(c)
+						OPS.Get(sym); ext^[n] := SHORT(CHR(c))
 					END ;
 					IF sym = comma THEN OPS.Get(sym)
 					ELSIF sym = number THEN err(comma)
-					ELSE ext^[0] := CHR(n); EXIT
+					ELSE ext^[0] := SHORT(CHR(n)); EXIT
 					END
 				END
 			END ;
@@ -614,7 +614,7 @@ MODULE OfrontOPP;	(* NW, RC 6.3.89 / 10.2.94 *)	(* object model 4.12.93 *)
 		END GetParams;
 
 		PROCEDURE Body;
-			VAR procdec, statseq: OPT.Node; c: LONGINT;
+			VAR procdec, statseq: OPT.Node; c: INTEGER;
 		BEGIN
 			c := OPM.errpos;
 			INCL(proc^.conval^.setval, hasBody);
@@ -631,7 +631,7 @@ MODULE OfrontOPP;	(* NW, RC 6.3.89 / 10.2.94 *)	(* object model 4.12.93 *)
 		PROCEDURE TProcDecl;
 			VAR baseProc: OPT.Object;
 				objTyp, recTyp: OPT.Struct;
-				objMode: SHORTINT;
+				objMode: BYTE;
 				objName: OPS.Name;
 		BEGIN
 			OPS.Get(sym); mode := TProc;
@@ -706,8 +706,8 @@ MODULE OfrontOPP;	(* NW, RC 6.3.89 / 10.2.94 *)	(* object model 4.12.93 *)
 		END
 	END ProcedureDeclaration;
 
-	PROCEDURE CaseLabelList(VAR lab: OPT.Node; LabelForm: INTEGER; VAR n: INTEGER; VAR tab: CaseTable);
-		VAR x, y, lastlab: OPT.Node; i, f: INTEGER; xval, yval: LONGINT;
+	PROCEDURE CaseLabelList(VAR lab: OPT.Node; LabelForm: SHORTINT; VAR n: SHORTINT; VAR tab: CaseTable);
+		VAR x, y, lastlab: OPT.Node; i, f: SHORTINT; xval, yval: INTEGER;
 	BEGIN lab := NIL; lastlab := NIL;
 		LOOP ConstExpression(x); f := x^.typ^.form;
 			IF f IN intSet + {Char} THEN  xval := x^.conval^.intval
@@ -747,10 +747,10 @@ MODULE OfrontOPP;	(* NW, RC 6.3.89 / 10.2.94 *)	(* object model 4.12.93 *)
 
 	PROCEDURE StatSeq(VAR stat: OPT.Node);
 		VAR fpar, id, t, obj: OPT.Object; idtyp: OPT.Struct; e: BOOLEAN;
-				s, x, y, z, apar, last, lastif: OPT.Node; pos: LONGINT; name: OPS.Name;
+				s, x, y, z, apar, last, lastif: OPT.Node; pos: INTEGER; name: OPS.Name;
 
 		PROCEDURE CasePart(VAR x: OPT.Node);
-			VAR n: INTEGER; low, high: LONGINT; e: BOOLEAN;
+			VAR n: SHORTINT; low, high: INTEGER; e: BOOLEAN;
 					tab: CaseTable; cases, lab, y, lastcase: OPT.Node; 
 		BEGIN
 			Expression(x); pos := OPM.errpos;
@@ -930,7 +930,7 @@ MODULE OfrontOPP;	(* NW, RC 6.3.89 / 10.2.94 *)	(* object model 4.12.93 *)
 		VAR typ: OPT.Struct;
 			obj, first, last: OPT.Object;
 			x, lastdec: OPT.Node;
-			i: INTEGER;
+			i: SHORTINT;
 
 	BEGIN first := NIL; last := NIL; nofFwdPtr := 0;
 		LOOP
@@ -1024,7 +1024,7 @@ MODULE OfrontOPP;	(* NW, RC 6.3.89 / 10.2.94 *)	(* object model 4.12.93 *)
 	PROCEDURE Module*(VAR prog: OPT.Node; opt: SET);
 		VAR impName, aliasName: OPS.Name;
 				procdec, statseq: OPT.Node;
-				c: LONGINT; done: BOOLEAN;
+				c: INTEGER; done: BOOLEAN;
 	BEGIN
 		OPS.Init; LoopLevel := 0; level := 0; OPS.Get(sym);
 		IF sym = module THEN OPS.Get(sym) ELSE err(16) END ;
@@ -1034,9 +1034,9 @@ MODULE OfrontOPP;	(* NW, RC 6.3.89 / 10.2.94 *)	(* object model 4.12.93 *)
 			IF sym = import THEN OPS.Get(sym);
 				LOOP
 					IF sym = ident THEN
-						COPY(OPS.name, aliasName); COPY(aliasName, impName); OPS.Get(sym);
+						aliasName := OPS.name$; impName := aliasName$; OPS.Get(sym);
 						IF sym = becomes THEN OPS.Get(sym);
-							IF sym = ident THEN COPY(OPS.name, impName); OPS.Get(sym) ELSE err(ident) END
+							IF sym = ident THEN impName := OPS.name$; OPS.Get(sym) ELSE err(ident) END
 						END ;
 						OPT.Import(aliasName, impName, done)
 					ELSE err(ident)

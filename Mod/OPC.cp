@@ -1,8 +1,7 @@
-MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
-(* C source code generator version 
+MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 16.5.98 *)
+(* C source code generator version
 
-	30.4.2000 jt, synchronized with BlackBox version, in particular
-		various promotion rules changed (long) => (LONGINT), xxxL avoided
+	30.4.2000 jt, various promotion rules changed (long) => (LONGINT), xxxL avoided
 *)
 
 	IMPORT OPT := OfrontOPT, OPM := OfrontOPM;
@@ -83,12 +82,14 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 		CaseStat = "case ";
 
 	VAR
-		indentLevel: INTEGER;
+		indentLevel: SHORTINT;
 		ptrinit, mainprog, ansi: BOOLEAN;
-		hashtab: ARRAY 105 OF SHORTINT;
-		keytab: ARRAY 36, 9 OF CHAR;
+		hashtab: ARRAY 105 OF BYTE;
+		keytab: ARRAY 36, 9 OF SHORTCHAR;
 		GlbPtrs: BOOLEAN;
-		BodyNameExt: ARRAY 13 OF CHAR;
+		BodyNameExt: ARRAY 13 OF SHORTCHAR;
+
+starsLevel: INTEGER;
 
 	PROCEDURE Init*;
 	BEGIN
@@ -99,12 +100,12 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 		IF ansi THEN BodyNameExt := "__init(void)" ELSE BodyNameExt := "__init()" END
 	END Init;
 
-	PROCEDURE Indent* (count: INTEGER);
+	PROCEDURE Indent* (count: SHORTINT);
 	BEGIN INC(indentLevel, count)
 	END Indent;
 
 	PROCEDURE BegStat*;
-		VAR i: INTEGER;
+		VAR i: SHORTINT;
 	BEGIN i := indentLevel;
 		WHILE i > 0 DO OPM.Write(Tab); DEC (i) END
 	END BegStat;
@@ -125,8 +126,8 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 	BEGIN DEC(indentLevel); BegStat; OPM.Write(CloseBrace)
 	END EndBlk0;
 
-	PROCEDURE Str1(s: ARRAY OF CHAR; x: LONGINT);
-		VAR ch: CHAR; i: INTEGER;
+	PROCEDURE Str1(s: ARRAY OF SHORTCHAR; x: INTEGER);
+		VAR ch: SHORTCHAR; i: SHORTINT;
 	BEGIN ch := s[0]; i := 0;
 		WHILE ch # 0X DO
 			IF ch = "#" THEN OPM.WriteInt(x)
@@ -136,22 +137,22 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 		END
 	END Str1;
 
-	PROCEDURE Length(VAR s: ARRAY OF CHAR): INTEGER;
-		VAR i: INTEGER;
+	PROCEDURE Length(VAR s: ARRAY OF SHORTCHAR): SHORTINT;
+		VAR i: SHORTINT;
 	BEGIN i := 0;
 		WHILE s[i] # 0X DO INC(i) END ;
 		RETURN i
 	END Length;
 
-	PROCEDURE PerfectHash (VAR s: ARRAY OF CHAR): INTEGER;
-		VAR i, h: INTEGER;
+	PROCEDURE PerfectHash (VAR s: ARRAY OF SHORTCHAR): SHORTINT;
+		VAR i, h: SHORTINT;
 	BEGIN i := 0; h := 0;
-		WHILE (s[i] # 0X) & (i < 5) DO h := 3*h + ORD(s[i]); INC(i) END;
-		RETURN h MOD 105
+		WHILE (s[i] # 0X) & (i < 5) DO h := SHORT(3*h + ORD(s[i])); INC(i) END;
+		RETURN SHORT(h MOD 105)
 	END PerfectHash;
 
 	PROCEDURE Ident* (obj: OPT.Object);
-		VAR mode, level, h: INTEGER;
+		VAR mode, level, h: SHORTINT;
 	BEGIN
 		mode := obj^.mode; level := obj^.mnolev;
 		IF (mode IN {Var, Typ, LProc}) & (level > 0) OR (mode IN {Fld, VarPar}) THEN
@@ -177,8 +178,10 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 	END Ident;
 
 	PROCEDURE Stars (typ: OPT.Struct; VAR openClause: BOOLEAN);
-		VAR pointers: INTEGER;
+		VAR pointers: SHORTINT;
 	BEGIN
+INC(starsLevel);
+IF starsLevel > 10 THEN HALT(99) END ;
 		openClause := FALSE;
 		IF ((typ^.strobj = NIL) OR (typ^.strobj^.name = "")) & (typ^.comp # Record) THEN
 			IF typ^.comp IN {Array, DynArr} THEN
@@ -196,6 +199,7 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 				END
 			END
 		END
+; DEC(starsLevel);
 	END Stars;
 
 	PROCEDURE ^AnsiParamList (obj: OPT.Object; showParamNames: BOOLEAN);
@@ -203,7 +207,7 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 	PROCEDURE DeclareObj(dcl: OPT.Object; scopeDef: BOOLEAN);
 		VAR
 			typ: OPT.Struct;
-			varPar, openClause: BOOLEAN; form, comp: INTEGER;
+			varPar, openClause: BOOLEAN; form, comp: SHORTINT;
 	BEGIN
 		typ := dcl^.typ;
 		varPar := ((dcl^.mode = VarPar) & (typ^.comp # Array)) OR (typ^.comp = DynArr) OR scopeDef;
@@ -252,10 +256,10 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 		RETURN (obj^.mnolev >= 0) & (obj^.linkadr # 3+OPM.currFile ) & (obj^.linkadr # PredefinedType) OR (obj^.name = "")
 	END Undefined;
 
-	PROCEDURE ^FieldList (typ: OPT.Struct; last: BOOLEAN; VAR off, n, curAlign: LONGINT);
+	PROCEDURE ^FieldList (typ: OPT.Struct; last: BOOLEAN; VAR off, n, curAlign: INTEGER);
 
 	PROCEDURE DeclareBase(dcl: OPT.Object); (* declare the specifier of object dcl*)
-		VAR typ, prev: OPT.Struct; obj: OPT.Object; nofdims: INTEGER; off, n, dummy: LONGINT;
+		VAR typ, prev: OPT.Struct; obj: OPT.Object; nofdims: SHORTINT; off, n, dummy: INTEGER;
 	BEGIN
 		typ := dcl^.typ; prev := typ;
 		WHILE ((typ^.strobj = NIL) OR (typ^.comp = DynArr) OR Undefined(typ^.strobj)) & (typ^.comp # Record) & (typ^.form # NoTyp)
@@ -290,8 +294,8 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 		END
 	END DeclareBase;
 
-	PROCEDURE NofPtrs* (typ: OPT.Struct): LONGINT;
-		VAR fld: OPT.Object; btyp: OPT.Struct; n: LONGINT;
+	PROCEDURE NofPtrs* (typ: OPT.Struct): INTEGER;
+		VAR fld: OPT.Object; btyp: OPT.Struct; n: INTEGER;
 	BEGIN
 		IF (typ^.form = Pointer) & (typ^.sysflag = 0) THEN RETURN 1
 		ELSIF (typ^.comp = Record) & (typ^.sysflag MOD 100H = 0) THEN
@@ -313,8 +317,8 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 		END
 	END NofPtrs;
 
-	PROCEDURE PutPtrOffsets (typ: OPT.Struct; adr: LONGINT; VAR cnt: LONGINT);
-		VAR fld: OPT.Object; btyp: OPT.Struct; n, i: LONGINT;
+	PROCEDURE PutPtrOffsets (typ: OPT.Struct; adr: INTEGER; VAR cnt: INTEGER);
+		VAR fld: OPT.Object; btyp: OPT.Struct; n, i: INTEGER;
 	BEGIN
 		IF (typ^.form = Pointer) & (typ^.sysflag = 0) THEN
 			OPM.WriteInt(adr); OPM.WriteString(", "); INC(cnt);
@@ -364,7 +368,7 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 	END PutBase;
 
 	PROCEDURE LenList(par: OPT.Object; ansiDefine, showParamName: BOOLEAN);
-		VAR typ: OPT.Struct; dim: INTEGER;
+		VAR typ: OPT.Struct; dim: SHORTINT;
 	BEGIN
 		IF showParamName THEN Ident(par); OPM.WriteString(LenExt) END ;
 		dim := 1; typ := par^.typ^.BaseTyp;
@@ -432,7 +436,7 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 	END DeclareTProcs;
 
 	PROCEDURE BaseTProc*(obj: OPT.Object): OPT.Object;
-		VAR typ, base: OPT.Struct; mno: LONGINT;
+		VAR typ, base: OPT.Struct; mno: INTEGER;
 	BEGIN typ := obj^.link^.typ;	(* receiver type *)
 		IF typ^.form = Pointer THEN typ := typ^.BaseTyp END ;
 		base := typ^.BaseTyp; mno := obj^.adr DIV 10000H;
@@ -454,7 +458,6 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 					OPM.WriteString("__TYPEOF("); Ident(obj^.link); OPM.Write(")")
 				ELSE Ident(obj^.link); OPM.WriteString(TagExt)
 				END ;
-				OPM.WriteString(", "); Ident(obj);
 				Str1(", #, ", obj^.adr DIV 10000H);
 				IF obj^.typ = OPT.notyp THEN OPM.WriteString(VoidType) ELSE Ident(obj^.typ^.strobj) END ;
 				OPM.WriteString("(*)");
@@ -518,15 +521,15 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 		END
 	END DefineType;
 
-	PROCEDURE Prefixed(x: OPT.ConstExt;  y: ARRAY OF CHAR): BOOLEAN;
-		VAR i: INTEGER;
+	PROCEDURE Prefixed(x: OPT.ConstExt;  y: ARRAY OF SHORTCHAR): BOOLEAN;
+		VAR i: SHORTINT;
 	BEGIN i := 0; 
 		WHILE x[i+1] = y[i] DO INC(i) END ;
 		RETURN y[i] = 0X 
 	END Prefixed;
 
-	PROCEDURE CProcDefs(obj: OPT.Object; vis: INTEGER);
-		VAR i: INTEGER; ext: OPT.ConstExt;
+	PROCEDURE CProcDefs(obj: OPT.Object; vis: SHORTINT);
+		VAR i: SHORTINT; ext: OPT.ConstExt;
 	BEGIN
 		IF obj # NIL THEN
 			CProcDefs(obj^.left, vis);
@@ -545,7 +548,7 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 		END
 	END CProcDefs;
 
-	PROCEDURE TypeDefs* (obj: OPT.Object; vis(*replaced by test on currFile in DefineType*): INTEGER);
+	PROCEDURE TypeDefs* (obj: OPT.Object; vis(*replaced by test on currFile in DefineType*): SHORTINT);
 	BEGIN
 		IF obj # NIL THEN
 			TypeDefs(obj^.left, vis);
@@ -571,11 +574,11 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 	END DefAnonRecs;
 
 	PROCEDURE TDescDecl* (typ: OPT.Struct);
-		VAR nofptrs: LONGINT;
+		VAR nofptrs: INTEGER;
 			o: OPT.Object;
 	BEGIN
 		BegStat; OPM.WriteString("__TDESC("); 
-		Andent(typ); OPM.WriteString("__desc");
+		Andent(typ);
 		Str1(", #", typ^.n + 1); Str1(", #) = {__TDFLDS(", NofPtrs(typ));
 		OPM.Write('"');
 		IF typ^.strobj # NIL THEN OPM.WriteStringVar(typ^.strobj^.name) END ;
@@ -594,7 +597,7 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 		IF typ^.strobj # NIL THEN InitTProcs(typ^.strobj, typ^.link) END
 	END InitTDesc;
 
-	PROCEDURE Align*(VAR adr: LONGINT; base: LONGINT);
+	PROCEDURE Align*(VAR adr: INTEGER; base: INTEGER);
 	BEGIN
 		CASE base OF 
 		|  2: INC(adr, adr MOD 2)
@@ -605,7 +608,7 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 		END
 	END Align;
 
-	PROCEDURE Base*(typ: OPT.Struct): LONGINT;
+	PROCEDURE Base*(typ: OPT.Struct): INTEGER;
 	BEGIN
 		CASE typ^.form OF
 		| Byte: RETURN 1
@@ -626,8 +629,8 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 		END
 	END Base;
 
-	PROCEDURE FillGap(gap, off, align: LONGINT; VAR n, curAlign: LONGINT);
-		VAR adr: LONGINT;
+	PROCEDURE FillGap(gap, off, align: INTEGER; VAR n, curAlign: INTEGER);
+		VAR adr: INTEGER;
 	BEGIN
 		adr := off; Align(adr, align);
 		IF (curAlign < align) & (gap - (adr - off) >= align) THEN (* preserve alignment of the enclosing struct! *)
@@ -643,8 +646,8 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 		IF gap > 0 THEN BegStat; Str1("char _prvt#", n); INC(n); Str1("[#]", gap); EndStat END
 	END FillGap;
 
-	PROCEDURE FieldList (typ: OPT.Struct; last: BOOLEAN; VAR off, n, curAlign: LONGINT);
-		VAR fld: OPT.Object; base: OPT.Struct; gap, adr, align, fldAlign: LONGINT;
+	PROCEDURE FieldList (typ: OPT.Struct; last: BOOLEAN; VAR off, n, curAlign: INTEGER);
+		VAR fld: OPT.Object; base: OPT.Struct; gap, adr, align, fldAlign: INTEGER;
 	BEGIN
 		fld := typ.link; align := typ^.align MOD 10000H;
 		IF typ.BaseTyp # NIL THEN FieldList(typ.BaseTyp, FALSE, off, n, curAlign)
@@ -677,9 +680,9 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 		END
 	END FieldList;
 
-	PROCEDURE IdentList (obj: OPT.Object; vis: INTEGER);
+	PROCEDURE IdentList (obj: OPT.Object; vis: SHORTINT);
 	(* generate var and param lists; vis: 0 all global vars, local var, 1 exported(R) var, 2 par list, 3 scope var *)
-		VAR base: OPT.Struct; first: BOOLEAN; lastvis: INTEGER;
+		VAR base: OPT.Struct; first: BOOLEAN; lastvis: SHORTINT;
 	BEGIN
 		base := NIL; first := TRUE;
 		WHILE (obj # NIL) & (obj^.mode # TProc) DO
@@ -721,7 +724,7 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 	END IdentList;
 
 	PROCEDURE AnsiParamList (obj: OPT.Object; showParamNames: BOOLEAN);
-		VAR name: ARRAY 32 OF CHAR;
+		VAR name: ARRAY 32 OF SHORTCHAR;
 	BEGIN
 		OPM.Write("(");
 		IF (obj = NIL) OR (obj^.mode = TProc) THEN OPM.WriteString("void")
@@ -731,7 +734,7 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 				IF showParamNames THEN 
 					OPM.Write(Blank); DeclareObj(obj, FALSE)
 				ELSE
-					COPY(obj^.name, name);  obj^.name := ""; DeclareObj(obj, FALSE); COPY(name, obj^.name)
+					name := obj^.name$;  obj^.name := ""; DeclareObj(obj, FALSE); obj^.name := name$
 				END ;
 				IF obj^.typ^.comp = DynArr THEN
 					OPM.WriteString(", LONGINT ");
@@ -764,7 +767,7 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 		END
 	END ProcHeader;
 
-	PROCEDURE ProcPredefs (obj: OPT.Object; vis: SHORTINT); (* forward declaration of procedures *)
+	PROCEDURE ProcPredefs (obj: OPT.Object; vis: BYTE); (* forward declaration of procedures *)
 	BEGIN
 		IF obj # NIL THEN
 			ProcPredefs(obj^.left, vis);
@@ -780,13 +783,13 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 		END;
 	END ProcPredefs;
 
-	PROCEDURE Include(name: ARRAY OF CHAR);
+	PROCEDURE Include(name: ARRAY OF SHORTCHAR);
 	BEGIN
 		OPM.WriteString("#include "); OPM.Write(Quotes); OPM.WriteStringVar(name);
 		OPM.WriteString(".h"); OPM.Write(Quotes); OPM.WriteLn
 	END Include;
 
-	PROCEDURE IncludeImports(obj: OPT.Object; vis: INTEGER);
+	PROCEDURE IncludeImports(obj: OPT.Object; vis: SHORTINT);
 	BEGIN
 		IF obj # NIL THEN
 			IncludeImports(obj^.left, vis);
@@ -797,7 +800,7 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 		END;
 	END IncludeImports;
 
-	PROCEDURE GenDynTypes (n: OPT.Node; vis: INTEGER);
+	PROCEDURE GenDynTypes (n: OPT.Node; vis: SHORTINT);
 		VAR typ: OPT.Struct;
 	BEGIN
 		WHILE (n # NIL) & (n^.class = Ninittd) DO
@@ -834,7 +837,7 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 	PROCEDURE GenHeaderMsg;
 		VAR i: INTEGER;
 	BEGIN
-		OPM.WriteString("/*"); OPM.WriteString(HeaderMsg); 
+		OPM.WriteString("/* "); OPM.WriteString(HeaderMsg); 
 		FOR i := 0 TO 31 DO
 			IF i IN OPM.glbopt THEN
 				CASE i OF	(* c.f. ScanOptions in OPM *)
@@ -902,7 +905,7 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 			InitImports(obj^.left);
 			IF (obj^.mode = Mod) & (obj^.mnolev # 0) THEN
 				BegStat; OPM.WriteString("__IMPORT(");
-				OPM.WriteStringVar(OPT.GlbMod[-obj^.mnolev].name); OPM.WriteString("__init");
+				OPM.WriteStringVar(OPT.GlbMod[-obj^.mnolev].name); 
 				OPM.Write(CloseParen); EndStat
 			END ;
 			InitImports(obj^.right)
@@ -910,7 +913,7 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 	END InitImports;
 
 	PROCEDURE GenEnumPtrs* (var: OPT.Object);
-		VAR typ: OPT.Struct; n: LONGINT;
+		VAR typ: OPT.Struct; n: INTEGER;
 	BEGIN GlbPtrs := FALSE;
 		WHILE var # NIL DO
 			typ := var^.typ;
@@ -1006,7 +1009,7 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 	END DefineInter;
 
 	PROCEDURE EnterProc* (proc: OPT.Object);
-		VAR var, scope: OPT.Object; typ: OPT.Struct; dim: INTEGER;
+		VAR var, scope: OPT.Object; typ: OPT.Struct; dim: SHORTINT;
 	BEGIN
 		IF proc^.vis # external THEN OPM.WriteString(Static) END ;
 		ProcHeader(proc, TRUE);
@@ -1144,7 +1147,7 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 	END ExitProc;
 
 	PROCEDURE CompleteIdent*(obj: OPT.Object);
-		VAR comp, level: INTEGER;
+		VAR comp, level: SHORTINT;
 	BEGIN
 		(* obj^.mode IN {Var, VarPar} *)
 		level := obj^.mnolev;
@@ -1164,7 +1167,7 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 	END CompleteIdent;
 
 	PROCEDURE TypeOf*(ap: OPT.Object);
-		VAR i: INTEGER;
+		VAR i: SHORTINT;
 	BEGIN
 		ASSERT(ap.typ.comp = Record);
 		IF ap.mode = VarPar THEN
@@ -1180,7 +1183,7 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 		END
 	END TypeOf;
 
-	PROCEDURE Cmp*(rel: INTEGER);
+	PROCEDURE Cmp*(rel: SHORTINT);
 	BEGIN
 		CASE rel OF
 			eql :
@@ -1198,14 +1201,14 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 		END;
 	END Cmp;
 
-	PROCEDURE Case*(caseVal: LONGINT; form: INTEGER);
+	PROCEDURE Case*(caseVal: INTEGER; form: SHORTINT);
 	VAR
-		ch: CHAR;
+		ch: SHORTCHAR;
 	BEGIN
 		OPM.WriteString(CaseStat);
 		CASE form OF
 		|	Char :
-					ch := CHR (caseVal);
+					ch := SHORT(CHR (caseVal));
 					IF (ch >= " ") & (ch <= "~") THEN
 						OPM.Write(SingleQuote);
 						IF (ch = "\") OR (ch = "?") OR (ch = SingleQuote) OR (ch = Quotes) THEN OPM.Write("\"); OPM.Write(ch);
@@ -1231,12 +1234,12 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 		IF decrement THEN OPM.WriteString(" -= "); ELSE OPM.WriteString(" += "); END;
 	END Increment;
 
-	PROCEDURE Halt* (n: LONGINT);
+	PROCEDURE Halt* (n: INTEGER);
 	BEGIN
 		Str1("__HALT(#)", n)
 	END Halt;
 
-	PROCEDURE Len* (obj: OPT.Object; array: OPT.Struct; dim: LONGINT);
+	PROCEDURE Len* (obj: OPT.Object; array: OPT.Struct; dim: INTEGER);
 	BEGIN
 		IF array^.comp = DynArr THEN
 			CompleteIdent(obj); OPM.WriteString(LenExt);
@@ -1247,9 +1250,9 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 		END
 	END Len;
 
-	PROCEDURE Constant* (con: OPT.Const; form: INTEGER);
-		VAR i, len: INTEGER; ch: CHAR; s: SET;
-			hex: LONGINT; skipLeading: BOOLEAN;
+	PROCEDURE Constant* (con: OPT.Const; form: SHORTINT);
+		VAR i, len: SHORTINT; ch: SHORTCHAR; s: SET;
+			hex: INTEGER; skipLeading: BOOLEAN;
 	BEGIN
 		CASE form OF
 			Byte:
@@ -1257,7 +1260,7 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 		|	Bool:
 					OPM.WriteInt(con^.intval)
 		|	Char:
-					ch := CHR(con^.intval);
+					ch := SHORT(CHR(con^.intval));
 					IF (ch >= " ") & (ch <= "~") THEN
 						OPM.Write(SingleQuote);
 						IF (ch = "\") OR (ch = "?") OR (ch = SingleQuote) OR (ch = Quotes) THEN OPM.Write("\") END ;
@@ -1290,7 +1293,7 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 					IF skipLeading THEN OPM.Write("0") END
 		|	String:
 					OPM.Write(Quotes);
-					len := SHORT(con^.intval2) - 1; i := 0;
+					len := SHORT(SHORT(con^.intval2) - 1); i := 0;
 					WHILE i < len DO ch := con^.ext^[i];
 						IF (ch = "\") OR (ch = "?") OR (ch = SingleQuote) OR (ch = Quotes) THEN OPM.Write("\") END ;
 						OPM.Write(ch); INC(i)
@@ -1303,11 +1306,11 @@ MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 3.7.96 *)
 
 
 	PROCEDURE InitKeywords;
-		VAR n, i: SHORTINT;
+		VAR n, i: BYTE;
 
-		PROCEDURE Enter(s: ARRAY OF CHAR);
-			VAR h: INTEGER;
-		BEGIN h := PerfectHash(s); hashtab[h] := n; COPY(s, keytab[n]); INC(n)
+		PROCEDURE Enter(s: ARRAY OF SHORTCHAR);
+			VAR h: SHORTINT;
+		BEGIN h := PerfectHash(s); hashtab[h] := n; keytab[n] := s$; INC(n)
 		END Enter;
 
 	BEGIN n := 0;

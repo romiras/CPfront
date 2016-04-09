@@ -1,32 +1,8 @@
 MODULE OfrontCmd;	(* J. Templ 3.2.95 *)
 
 	IMPORT
-		SYSTEM, Unix, Kernel,
 		OPP := OfrontOPP, OPB := OfrontOPB, OPT := OfrontOPT,
 		OPV := OfrontOPV, OPC := OfrontOPC, OPM := OfrontOPM;
-
-	PROCEDURE -signal(sig: LONGINT; func: Unix.SignalHandler)
-		"signal(sig, func)";
-
-	PROCEDURE -fin()
-		"SYSTEM_FINALL()";
-
-	PROCEDURE -halt(): LONGINT
-		"SYSTEM_halt";
-
-(*
-	PROCEDURE -gclock()
-		"SYSTEM_gclock = 1";
-*)
-
-	PROCEDURE Trap(sig, code: LONGINT; scp: Unix.SigCtxPtr);
-	BEGIN fin();
-		IF sig = 3 THEN Unix.Exit(0)
-		ELSE
-			IF (sig = 4) & (halt() = -15) THEN OPM.LogWStr(" --- ofront: internal error");  OPM.LogWLn END ;
-			Unix.Exit(2)
-		END
-	END Trap;
 
 	PROCEDURE Module*(VAR done: BOOLEAN);
 		VAR ext, new: BOOLEAN; p: OPT.Node;
@@ -52,14 +28,14 @@ MODULE OfrontCmd;	(* J. Templ 3.2.95 *)
 				END
 			END
 		END ;
-		OPM.CloseFiles; OPT.Close;
+		OPM.CloseFiles;
+		IF OPT.topScope # NIL THEN OPT.Close END; (* sonst Trap nach Fehler *)
 		OPM.LogWLn; done := OPM.noerr
 	END Module;
 
-	PROCEDURE Translate*;
-		VAR done: BOOLEAN;
+	PROCEDURE InitParams(list: BOOLEAN);
 	BEGIN
-		OPM.OpenPar; (* gclock();   slightly faste rtranslation but may lead to opening "too many files" *)
+		OPM.OpenPar(list);
 		OPT.bytetyp.size := OPM.ByteSize;
 		OPT.sysptrtyp.size := OPM.PointerSize;
 		OPT.chartyp.size := OPM.CharSize;
@@ -70,19 +46,30 @@ MODULE OfrontCmd;	(* J. Templ 3.2.95 *)
 		OPT.lrltyp.size := OPM.LRealSize;
 		OPT.sinttyp.size := OPM.SIntSize;
 		OPT.booltyp.size := OPM.BoolSize;
+	END InitParams;
+
+	PROCEDURE Translate*;
+		VAR done: BOOLEAN;
+	BEGIN
+		InitParams(FALSE);
+		OPM.Init(done);
+		OPM.InitOptions();
+		IF done THEN Module(done) END
+	END Translate;
+
+	PROCEDURE TranslateModuleList*;
+		VAR done: BOOLEAN;
+	BEGIN
+		InitParams(TRUE);
 		LOOP
 			OPM.Init(done);
 			IF ~done THEN EXIT END ;
 			OPM.InitOptions;
-			Kernel.GC(FALSE);
 			Module(done);
-			IF ~done THEN Unix.Exit(1) END
+			IF ~done THEN EXIT END
 		END
-	END Translate;
+	END TranslateModuleList;
 
 BEGIN
-	signal(2, Trap);	(* interrupt *)
-	signal(3, Trap);	(* quit *)
-	signal(4, Trap);	(* illegal instruction, HALT *)
-	OPB.typSize := OPV.TypSize; OPT.typSize := OPV.TypSize; Translate
+	OPB.typSize := OPV.TypSize; OPT.typSize := OPV.TypSize
 END OfrontCmd.

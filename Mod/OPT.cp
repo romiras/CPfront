@@ -1,7 +1,7 @@
 MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
-
 (*
-2002-08-20 jt: NewStr: txtpos remains 0 for structs read from symbol file
+2002-04-11  jt: SHORT(SHORT(-mno)) used for -mno for BB 1.4
+2002-08-20  jt: NewStr: txtpos remains 0 for structs read from symbol files
 *)
 
 	IMPORT
@@ -19,40 +19,40 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 
 		ConstDesc* = RECORD
 			ext*: ConstExt;	(* string or code for code proc *)
-			intval*: LONGINT;	(* constant value or adr, proc par size, text position or least case label *)
-			intval2*: LONGINT;	(* string length, proc var size or larger case label *)
+			intval*: INTEGER;	(* constant value or adr, proc par size, text position or least case label *)
+			intval2*: INTEGER;	(* string length, proc var size or larger case label *)
 			setval*: SET;	(* constant value, procedure body present or "ELSE" present in case *)
-			realval*: LONGREAL	(* real or longreal constant value *)
+			realval*: REAL	(* real or longreal constant value *)
 		END ;
 
-		ObjDesc* = RECORD
+		ObjDesc* = EXTENSIBLE RECORD
 			left*, right*, link*, scope*: Object;
 			name*: OPS.Name;
 			leaf*: BOOLEAN;
-			mode*, mnolev*: SHORTINT;	(* mnolev < 0 -> mno = -mnolev *)
-			vis*: SHORTINT;	(* internal, external, externalR *)
-			history*: SHORTINT;	(* relevant if name # "" *)
+			mode*, mnolev*: BYTE;	(* mnolev < 0 -> mno = -mnolev *)
+			vis*: BYTE;	(* internal, external, externalR *)
+			history*: BYTE;	(* relevant if name # "" *)
 			used*, fpdone*: BOOLEAN;
-			fprint*: LONGINT;
+			fprint*: INTEGER;
 			typ*: Struct;
 			conval*: Const;
-			adr*, linkadr*: LONGINT;
-			x*: INTEGER	(* linkadr and x can be freely used by the backend *)
+			adr*, linkadr*: INTEGER;
+			x*: SHORTINT	(* linkadr and x can be freely used by the backend *)
 		END ;
 
-		StrDesc* = RECORD
-			form*, comp*, mno*, extlev*: SHORTINT;
-			ref*, sysflag*: INTEGER;
-			n*, size*, align*, txtpos*: LONGINT;	(* align is alignment for records and len offset for dynarrs *)
+		StrDesc* = EXTENSIBLE RECORD
+			form*, comp*, mno*, extlev*: BYTE;
+			ref*, sysflag*: SHORTINT;
+			n*, size*, align*, txtpos*: INTEGER;	(* align is alignment for records and len offset for dynarrs *)
 			allocated*, pbused*, pvused*, fpdone, idfpdone: BOOLEAN;
-			idfp, pbfp*, pvfp*:LONGINT;
+			idfp, pbfp*, pvfp*:INTEGER;
 			BaseTyp*: Struct;
 			link*, strobj*: Object
 		END ;
 		
-		NodeDesc* = RECORD
+		NodeDesc* = EXTENSIBLE RECORD
 			left*, right*, link*: Node;
-			class*, subcl*: SHORTINT;
+			class*, subcl*: BYTE;
 			readonly*: BOOLEAN;
 			typ*: Struct;
 			obj*: Object;
@@ -69,7 +69,7 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 		topScope*: Object;
 		undftyp*, bytetyp*, booltyp*, chartyp*, sinttyp*, inttyp*, linttyp*,
 		realtyp*, lrltyp*, settyp*, stringtyp*, niltyp*, notyp*, sysptrtyp*: Struct;
-		nofGmod*: SHORTINT;	(*nof imports*)
+		nofGmod*: BYTE;	(*nof imports*)
 		GlbMod*: ARRAY maxImps OF Object;	(* ^.right = first object, ^.name = module import name (not alias) *)
 		SelfName*: OPS.Name;	(* name of module being compiled *)
 		SYSimported*: BOOLEAN;
@@ -112,30 +112,30 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 		
 	TYPE
 		ImpCtxt = RECORD
-			nextTag, reffp: LONGINT;
-			nofr, minr, nofm: INTEGER;
+			nextTag, reffp: INTEGER;
+			nofr, minr, nofm: SHORTINT;
 			self: BOOLEAN;
 			ref: ARRAY maxStruct OF Struct;
 			old: ARRAY maxStruct OF Object;
-			pvfp: ARRAY maxStruct OF LONGINT;	(* set only if old # NIL *)
-			glbmno: ARRAY maxImps OF SHORTINT	(* index is local mno *)
+			pvfp: ARRAY maxStruct OF INTEGER;	(* set only if old # NIL *)
+			glbmno: ARRAY maxImps OF BYTE	(* index is local mno *)
 		END ;
 
 		ExpCtxt = RECORD
-			reffp: LONGINT;
-			ref: INTEGER;
-			nofm: SHORTINT;
-			locmno: ARRAY maxImps OF SHORTINT	(* index is global mno *)
+			reffp: INTEGER;
+			ref: SHORTINT;
+			nofm: BYTE;
+			locmno: ARRAY maxImps OF BYTE	(* index is global mno *)
 		END ;
 
 	VAR
 		universe, syslink: Object;
 		impCtxt: ImpCtxt;
 		expCtxt: ExpCtxt;
-		nofhdfld: LONGINT;
+		nofhdfld: INTEGER;
 		newsf, findpc, extsf, sfpresent, symExtended, symNew: BOOLEAN;
 
-	PROCEDURE err(n: INTEGER);
+	PROCEDURE err(n: SHORTINT);
 	BEGIN OPM.err(n)
 	END err;
 	
@@ -149,14 +149,14 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 	BEGIN NEW(obj); RETURN obj
 	END NewObj;
 	
-	PROCEDURE NewStr*(form, comp: SHORTINT): Struct;
+	PROCEDURE NewStr*(form, comp: BYTE): Struct;
 		VAR typ: Struct;
 	BEGIN NEW(typ); typ^.form := form; typ^.comp := comp; typ^.ref := maxStruct;	(* ref >= maxStruct: not exported yet *)
 		IF form # Undef THEN typ^.txtpos := OPM.errpos END ;	(* txtpos remains 0 for structs read from symbol file *)
 		typ^.size := -1; typ^.BaseTyp := undftyp; RETURN typ
 	END NewStr;
 	
-	PROCEDURE NewNode*(class: SHORTINT): Node;
+	PROCEDURE NewNode*(class: BYTE): Node;
 		VAR node: Node;
 	BEGIN NEW(node); node^.class := class; RETURN node
 	END NewNode;
@@ -166,7 +166,7 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 	BEGIN NEW(ext); RETURN ext
 	END NewExt;
 
-	PROCEDURE OpenScope*(level: SHORTINT; owner: Object);
+	PROCEDURE OpenScope*(level: BYTE; owner: Object);
 		VAR head: Object;
 	BEGIN head := NewObj();
 		head^.mode := Head; head^.mnolev := level; head^.link := owner;
@@ -188,7 +188,7 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 	END Init;
 
 	PROCEDURE Close*;
-		VAR i: INTEGER;
+		VAR i: SHORTINT;
 	BEGIN	(* garbage collection *)
 		CloseScope;
 		i := 0; WHILE i < maxImps DO GlbMod[i] := NIL; INC(i) END ;
@@ -246,7 +246,7 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 	END FindField;
 
 	PROCEDURE Insert*(VAR name: OPS.Name; VAR obj: Object);
-		VAR ob0, ob1: Object; left: BOOLEAN; mnolev: SHORTINT;
+		VAR ob0, ob1: Object; left: BOOLEAN; mnolev: BYTE;
 	BEGIN ob0 := topScope; ob1 := ob0^.right; left := FALSE;
 		LOOP
 			IF ob1 # NIL THEN
@@ -256,7 +256,7 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 				END
 			ELSE (*insert*) ob1 := NewObj(); ob1^.leaf := TRUE;
 				IF left THEN ob0^.left := ob1 ELSE ob0^.right := ob1 END ;
-				ob1^.left := NIL; ob1^.right := NIL; COPY(name, ob1^.name);
+				ob1^.left := NIL; ob1^.right := NIL; ob1^.name := name$;
 				mnolev := topScope^.mnolev; ob1^.mnolev := mnolev;
 				EXIT
 			END
@@ -266,15 +266,15 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 
 (*-------------------------- Fingerprinting --------------------------*)
 
-	PROCEDURE FPrintName(VAR fp: LONGINT; VAR name: ARRAY OF CHAR);
-		VAR i: INTEGER; ch: CHAR;
+	PROCEDURE FPrintName(VAR fp: INTEGER; VAR name: ARRAY OF SHORTCHAR);
+		VAR i: SHORTINT; ch: SHORTCHAR;
 	BEGIN i := 0;
 		REPEAT ch := name[i]; OPM.FPrint(fp, ORD(ch)); INC(i) UNTIL ch = 0X
 	END FPrintName;
 
 	PROCEDURE ^IdFPrint*(typ: Struct);
 
-	PROCEDURE FPrintSign(VAR fp: LONGINT; result: Struct; par: Object);
+	PROCEDURE FPrintSign(VAR fp: INTEGER; result: Struct; par: Object);
 	(* depends on assignment compatibility of params only *)
 	BEGIN
 		IdFPrint(result); OPM.FPrint(fp, result^.idfp);
@@ -286,7 +286,7 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 	END FPrintSign;
 
 	PROCEDURE IdFPrint*(typ: Struct);	(* idfp codifies assignment compatibility *)
-		VAR btyp: Struct; strobj: Object; idfp: LONGINT; f, c: INTEGER;
+		VAR btyp: Struct; strobj: Object; idfp: INTEGER; f, c: SHORTINT;
 	BEGIN
 		IF ~typ^.idfpdone THEN
 			typ^.idfpdone := TRUE;	(* may be recursive, temporary idfp is 0 in that case *)
@@ -305,12 +305,12 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 	END IdFPrint;
 
 	PROCEDURE FPrintStr*(typ: Struct);
-		VAR f, c: INTEGER; btyp: Struct; strobj, bstrobj: Object; pbfp, pvfp: LONGINT;
+		VAR f, c: SHORTINT; btyp: Struct; strobj, bstrobj: Object; pbfp, pvfp: INTEGER;
 
-		PROCEDURE ^FPrintFlds(fld: Object; adr: LONGINT; visible: BOOLEAN);
+		PROCEDURE ^FPrintFlds(fld: Object; adr: INTEGER; visible: BOOLEAN);
 
-		PROCEDURE FPrintHdFld(typ: Struct; fld: Object; adr: LONGINT);	(* modifies pvfp only *)
-			VAR i, j, n: LONGINT; btyp: Struct;
+		PROCEDURE FPrintHdFld(typ: Struct; fld: Object; adr: INTEGER);	(* modifies pvfp only *)
+			VAR i, j, n: INTEGER; btyp: Struct;
 		BEGIN
 			IF typ^.comp = Record THEN FPrintFlds(typ^.link, adr, FALSE)
 			ELSIF typ^.comp = Array THEN btyp := typ^.BaseTyp; n := typ^.n;
@@ -330,7 +330,7 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 			END
 		END FPrintHdFld;
 
-		PROCEDURE FPrintFlds(fld: Object; adr: LONGINT; visible: BOOLEAN);	(* modifies pbfp and pvfp *)
+		PROCEDURE FPrintFlds(fld: Object; adr: INTEGER; visible: BOOLEAN);	(* modifies pbfp and pvfp *)
 		BEGIN
 			WHILE (fld # NIL) & (fld^.mode = Fld) DO
 				IF (fld^.vis # internal) & visible THEN
@@ -386,7 +386,7 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 	END FPrintStr;
 
 	PROCEDURE FPrintObj*(obj: Object);
-		VAR fprint: LONGINT; f, m: INTEGER; rval: REAL; ext: ConstExt;
+		VAR fprint: INTEGER; f, m: SHORTINT; rval: SHORTREAL; ext: ConstExt;
 	BEGIN
 		IF ~obj^.fpdone THEN
 			fprint := 0; obj^.fpdone := TRUE;
@@ -422,16 +422,16 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 		END
 	END FPrintObj;
 
-	PROCEDURE FPrintErr*(obj: Object; errno: INTEGER);
-		VAR i, j: INTEGER; ch: CHAR;
+	PROCEDURE FPrintErr*(obj: Object; errno: SHORTINT);
+		VAR i, j: SHORTINT; ch: SHORTCHAR;
 	BEGIN
 		IF obj^.mnolev # 0 THEN
-			COPY(GlbMod[-obj^.mnolev]^.name, OPM.objname); i := 0;
+			OPM.objname := GlbMod[-obj^.mnolev]^.name$; i := 0;
 			WHILE OPM.objname[i] # 0X DO INC(i) END ;
 			OPM.objname[i] := "."; j := 0; INC(i);
 			REPEAT ch := obj^.name[j]; OPM.objname[i] := ch; INC(j); INC(i) UNTIL ch = 0X;
 		ELSE
-			COPY(obj^.name, OPM.objname)
+			OPM.objname := obj^.name$
 		END ;
 		IF errno = 249 THEN
 			IF OPM.noerr THEN err(errno) END
@@ -470,16 +470,16 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 		END
 	END InsertImport;
 
-	PROCEDURE InName(VAR name: ARRAY OF CHAR);
-		VAR i: INTEGER; ch: CHAR;
+	PROCEDURE InName(VAR name: ARRAY OF SHORTCHAR);
+		VAR i: SHORTINT; ch: SHORTCHAR;
 	BEGIN i := 0;
 		REPEAT
 			OPM.SymRCh(ch); name[i] := ch; INC(i)
 		UNTIL ch = 0X
 	END InName;
 	
-	PROCEDURE InMod(VAR mno: SHORTINT);	(* mno is global *)
-		VAR head: Object; name: OPS.Name; mn: LONGINT; i: SHORTINT;
+	PROCEDURE InMod(VAR mno: BYTE);	(* mno is global *)
+		VAR head: Object; name: OPS.Name; mn: INTEGER; i: BYTE;
 	BEGIN
 		mn := OPM.SymRInt();
 		IF mn = 0 THEN mno := impCtxt.glbmno[0]
@@ -491,8 +491,8 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 				WHILE (i < nofGmod) & (name # GlbMod[i].name) DO INC(i) END ;
 				IF i < nofGmod THEN mno := i	(*module already present*)
 				ELSE
-					head := NewObj(); head^.mode := Head; COPY(name, head^.name);
-					mno := nofGmod; head^.mnolev := -mno;
+					head := NewObj(); head^.mode := Head; head^.name := name$;
+					mno := nofGmod; head^.mnolev := SHORT(SHORT(-mno));
 					IF nofGmod < maxImps THEN
 						GlbMod[mno] := head; INC(nofGmod)
 					ELSE err(227)
@@ -505,8 +505,8 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 		END
 	END InMod;
 
-	PROCEDURE InConstant(f: LONGINT; conval: Const);
-		VAR ch: CHAR; i: INTEGER; ext: ConstExt; rval: REAL;
+	PROCEDURE InConstant(f: INTEGER; conval: Const);
+		VAR ch: SHORTCHAR; i: SHORTINT; ext: ConstExt; rval: SHORTREAL;
 	BEGIN
 		CASE f OF
 		| Byte, Char, Bool:
@@ -535,13 +535,13 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 
 	PROCEDURE ^InStruct(VAR typ: Struct);
 
-	PROCEDURE InSign(mno: SHORTINT; VAR res: Struct; VAR par: Object);
-		VAR last, new: Object; tag: LONGINT;
+	PROCEDURE InSign(mno: BYTE; VAR res: Struct; VAR par: Object);
+		VAR last, new: Object; tag: INTEGER;
 	BEGIN
 		InStruct(res);
 		tag := OPM.SymRInt(); last := NIL;
 		WHILE tag # Send DO
-			new := NewObj(); new^.mnolev := -mno;
+			new := NewObj(); new^.mnolev := SHORT(SHORT(-mno));
 			IF last = NIL THEN par := new ELSE last^.link := new END ;
 			IF tag = Svalpar THEN new^.mode := Var ELSE new^.mode := VarPar END ;
 			InStruct(new^.typ); new^.adr := OPM.SymRInt(); InName(new^.name);
@@ -550,7 +550,7 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 	END InSign;
 
 	PROCEDURE InFld(): Object;	(* first number in impCtxt.nextTag, mno set outside *)
-		VAR tag: LONGINT; obj: Object;
+		VAR tag: INTEGER; obj: Object;
 	BEGIN
 		tag := impCtxt.nextTag; obj := NewObj();
 		IF tag <= Srfld THEN
@@ -567,11 +567,11 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 		RETURN obj
 	END InFld;
 
-	PROCEDURE InTProc(mno: SHORTINT): Object;	(* first number in impCtxt.nextTag *)
-		VAR tag: LONGINT; obj: Object;
+	PROCEDURE InTProc(mno: BYTE): Object;	(* first number in impCtxt.nextTag *)
+		VAR tag: INTEGER; obj: Object;
 	BEGIN
 		tag := impCtxt.nextTag;
-		obj := NewObj(); obj^.mnolev := -mno;
+		obj := NewObj(); obj^.mnolev := SHORT(SHORT(-mno));
 		IF tag = Stpro THEN
 			obj^.mode := TProc; obj^.conval := NewConst(); obj^.conval^.intval := -1;
 			InSign(mno, obj^.typ, obj^.link); obj^.vis := external; InName(obj^.name);
@@ -586,7 +586,7 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 	END InTProc;
 
 	PROCEDURE InStruct(VAR typ: Struct);
-		VAR mno: SHORTINT; ref: INTEGER; tag: LONGINT; name: OPS.Name;
+		VAR mno: BYTE; ref: SHORTINT; tag: INTEGER; name: OPS.Name;
 			t: Struct; obj, last, fld, old, dummy: Object;
 	BEGIN
 		tag := OPM.SymRInt();
@@ -612,11 +612,11 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 				ELSE typ := NewStr(Undef, Basic)
 				END
 			END ;
-			impCtxt.ref[ref] := typ; impCtxt.old[ref] := old; typ^.ref := ref + maxStruct;
+			impCtxt.ref[ref] := typ; impCtxt.old[ref] := old; typ^.ref := SHORT(ref + maxStruct);
 			(* ref >= maxStruct: not exported yet, ref used for err 155 *)
 			typ^.mno := mno; typ^.allocated := TRUE;
 			typ^.strobj := obj; obj^.mode := Typ; obj^.typ := typ;
-			obj^.mnolev := -mno; obj^.vis := internal; (* name not visible here *)
+			obj^.mnolev := SHORT(SHORT(-mno)); obj^.vis := internal; (* name not visible here *)
 			tag := OPM.SymRInt();
 			IF tag = Ssys THEN typ^.sysflag := SHORT(OPM.SymRInt()); tag := OPM.SymRInt() END ;
 			CASE tag OF
@@ -641,7 +641,7 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 				typ^.n := OPM.SymRInt();
 				impCtxt.nextTag := OPM.SymRInt(); last := NIL;
 				WHILE (impCtxt.nextTag >= Sfld) & (impCtxt.nextTag <= Shdpro) DO
-					fld := InFld(); fld^.mnolev := -mno;
+					fld := InFld(); fld^.mnolev := SHORT(SHORT(-mno));
 					IF last # NIL THEN last^.link := fld END ;
 					last := fld; InsertImport(fld, typ^.link, dummy);
 					impCtxt.nextTag := OPM.SymRInt()
@@ -688,16 +688,16 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 		END
 	END InStruct;
 
-	PROCEDURE InObj(mno: SHORTINT): Object;	(* first number in impCtxt.nextTag *)
-		VAR i, s: INTEGER; ch: CHAR; obj, old: Object; typ: Struct;
-			tag: LONGINT; ext: ConstExt;
+	PROCEDURE InObj(mno: BYTE): Object;	(* first number in impCtxt.nextTag *)
+		VAR i, s: SHORTINT; ch: SHORTCHAR; obj, old: Object; typ: Struct;
+			tag: INTEGER; ext: ConstExt;
 	BEGIN
 		tag := impCtxt.nextTag;
 		IF tag = Stype THEN
 			InStruct(typ); obj := typ^.strobj;
 			IF ~impCtxt.self THEN obj^.vis := external END	(* type name visible now, obj^.fprint already done *)
 		ELSE
-			obj := NewObj(); obj^.mnolev := -mno; obj^.vis := external;
+			obj := NewObj(); obj^.mnolev := SHORT(SHORT(-mno)); obj^.vis := external;
 			IF tag <= Pointer THEN	(* Constant *)
 				obj^.mode := Con; obj^.typ := impCtxt.ref[tag]; obj^.conval := NewConst(); InConstant(tag, obj^.conval)
 			ELSIF tag >= Sxpro THEN
@@ -709,7 +709,7 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 				| Sipro: obj^.mode := IProc
 				| Scpro: obj^.mode := CProc;
 					ext := NewExt(); obj^.conval^.ext := ext;
-					s := SHORT(OPM.SymRInt()); ext^[0] := CHR(s); i := 1;
+					s := SHORT(OPM.SymRInt()); ext^[0] := SHORT(CHR(s)); i := 1;
 					WHILE i <= s DO OPM.SymRCh(ext^[i]); INC(i) END
 				END
 			ELSIF tag = Salias THEN
@@ -754,7 +754,7 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 	END InObj;
 
 	PROCEDURE Import*(aliasName: OPS.Name; VAR name: OPS.Name; VAR done: BOOLEAN);
-		VAR obj: Object; mno: SHORTINT;	(* done used in Browser *)
+		VAR obj: Object; mno: BYTE;	(* done used in Browser *)
 	BEGIN
 		IF name = "SYSTEM" THEN SYSimported := TRUE;
 			Insert(aliasName, obj); obj^.mode := Mod; obj^.mnolev := 0; obj^.scope := syslink; obj^.typ := notyp
@@ -771,7 +771,7 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 				Insert(aliasName, obj);
 				obj^.mode := Mod; obj^.scope := GlbMod[mno].right;
 				GlbMod[mno].link := obj;
-				obj^.mnolev  := -mno; obj^.typ := notyp;
+				obj^.mnolev  := SHORT(SHORT(-mno)); obj^.typ := notyp;
 				OPM.CloseOldSym
 			ELSIF impCtxt.self THEN
 				newsf := TRUE; extsf := TRUE; sfpresent := FALSE
@@ -782,13 +782,13 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 
 (*-------------------------- Export --------------------------*)
 
-	PROCEDURE OutName(VAR name: ARRAY OF CHAR);
-		VAR i: INTEGER; ch: CHAR;
+	PROCEDURE OutName(VAR name: ARRAY OF SHORTCHAR);
+		VAR i: SHORTINT; ch: SHORTCHAR;
 	BEGIN i := 0;
 		REPEAT ch := name[i]; OPM.SymWCh(ch); INC(i) UNTIL ch = 0X
 	END OutName;
 	
-	PROCEDURE OutMod(mno: INTEGER);
+	PROCEDURE OutMod(mno: SHORTINT);
 	BEGIN
 		IF expCtxt.locmno[mno] < 0 THEN (* new mod *)
 			OPM.SymWInt(Smname);
@@ -799,10 +799,10 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 	END OutMod;
 
 	PROCEDURE ^OutStr(typ: Struct);
-	PROCEDURE ^OutFlds(fld: Object; adr: LONGINT; visible: BOOLEAN);
+	PROCEDURE ^OutFlds(fld: Object; adr: INTEGER; visible: BOOLEAN);
 
-	PROCEDURE OutHdFld(typ: Struct; fld: Object; adr: LONGINT);
-		VAR i, j, n: LONGINT; btyp: Struct;
+	PROCEDURE OutHdFld(typ: Struct; fld: Object; adr: INTEGER);
+		VAR i, j, n: INTEGER; btyp: Struct;
 	BEGIN
 		IF typ^.comp = Record THEN OutFlds(typ^.link, adr, FALSE)
 		ELSIF typ^.comp = Array THEN btyp := typ^.BaseTyp; n := typ^.n;
@@ -822,7 +822,7 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 		END
 	END OutHdFld;
 
-	PROCEDURE OutFlds(fld: Object; adr: LONGINT; visible: BOOLEAN);
+	PROCEDURE OutFlds(fld: Object; adr: INTEGER; visible: BOOLEAN);
 	BEGIN
 		WHILE (fld # NIL) & (fld^.mode = Fld) DO
 			IF (fld^.vis # internal) & visible THEN
@@ -913,12 +913,12 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 	END OutStr;
 
 	PROCEDURE OutConstant(obj: Object);
-		VAR f: INTEGER; rval: REAL;
+		VAR f: SHORTINT; rval: SHORTREAL;
 	BEGIN
 		f := obj^.typ^.form; OPM.SymWInt(f);
 		CASE f OF
 		| Bool, Char:
-			OPM.SymWCh(CHR(obj^.conval^.intval))
+			OPM.SymWCh(SHORT(CHR(obj^.conval^.intval)))
 		| SInt, Int, LInt:
 			OPM.SymWInt(obj^.conval^.intval)
 		| Set:
@@ -935,7 +935,7 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 	END OutConstant;
 
 	PROCEDURE OutObj(obj: Object);
-		VAR i, j: INTEGER; ext: ConstExt;
+		VAR i, j: SHORTINT; ext: ConstExt;
 	BEGIN
 		IF obj # NIL THEN
 			OutObj(obj^.left);
@@ -979,7 +979,7 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 	END OutObj;
 
 	PROCEDURE Export*(VAR ext, new: BOOLEAN);
-			VAR i: INTEGER; nofmod: SHORTINT; done: BOOLEAN;
+			VAR i: SHORTINT; nofmod: BYTE; done: BOOLEAN;
 	BEGIN
 		symExtended := FALSE; symNew := FALSE; nofmod := nofGmod;
 		Import("@self", SelfName, done); nofGmod := nofmod;
@@ -1004,21 +1004,21 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 	END Export;	(* no new symbol file if ~OPM.noerr or findpc *)
 
 
-	PROCEDURE InitStruct(VAR typ: Struct; form: SHORTINT);
+	PROCEDURE InitStruct(VAR typ: Struct; form: BYTE);
 	BEGIN
 		typ := NewStr(form, Basic); typ^.ref := form; typ^.size := OPM.ByteSize; typ^.allocated := TRUE;
 		typ^.strobj := NewObj(); typ^.pbfp := form; typ^.pvfp := form; typ^.fpdone := TRUE;
 		typ^.idfp := form; typ^.idfpdone := TRUE
 	END InitStruct;
 
-	PROCEDURE EnterBoolConst(name: OPS.Name; value: LONGINT);
+	PROCEDURE EnterBoolConst(name: OPS.Name; value: INTEGER);
 		VAR obj: Object;
 	BEGIN
 		Insert(name, obj); obj^.conval := NewConst();
 		obj^.mode := Con; obj^.typ := booltyp; obj^.conval^.intval := value
 	END EnterBoolConst;
 
-	PROCEDURE EnterTyp(name: OPS.Name; form: SHORTINT; size: INTEGER; VAR res: Struct);
+	PROCEDURE EnterTyp(name: OPS.Name; form: BYTE; size: SHORTINT; VAR res: Struct);
 		VAR obj: Object; typ: Struct;
 	BEGIN
 		Insert(name, obj);
@@ -1028,7 +1028,7 @@ MODULE OfrontOPT;	(* NW, RC 6.3.89 / 23.1.92 *)	(* object model 24.2.94 *)
 		typ^.idfp := form; typ^.idfpdone := TRUE; res := typ
 	END EnterTyp;
 
-	PROCEDURE EnterProc(name: OPS.Name; num: INTEGER);
+	PROCEDURE EnterProc(name: OPS.Name; num: SHORTINT);
 		VAR obj: Object;
 	BEGIN Insert(name, obj);
 		obj^.mode := SProc; obj^.typ := notyp; obj^.adr := num
@@ -1040,8 +1040,8 @@ BEGIN topScope := NIL; OpenScope(0, NIL); OPM.errpos := 0;
 	undftyp^.BaseTyp := undftyp;
 
 	(*initialization of module SYSTEM*)
-	EnterTyp("BYTE", Byte, OPM.ByteSize, bytetyp);
-	EnterTyp("PTR", Pointer, OPM.PointerSize, sysptrtyp);
+	EnterTyp("BYTE", Byte, SHORT(OPM.ByteSize), bytetyp);
+	EnterTyp("PTR", Pointer, SHORT(OPM.PointerSize), sysptrtyp);
 	EnterProc("ADR", adrfn);
 	EnterProc("CC", ccfn);
 	EnterProc("LSH", lshfn);
@@ -1057,14 +1057,14 @@ BEGIN topScope := NIL; OpenScope(0, NIL); OPM.errpos := 0;
 	syslink := topScope^.right;
 	universe := topScope; topScope^.right := NIL;
 
-	EnterTyp("CHAR", Char, OPM.CharSize, chartyp);
-	EnterTyp("SET", Set, OPM.SetSize, settyp);
-	EnterTyp("REAL", Real, OPM.RealSize, realtyp);
-	EnterTyp("INTEGER", Int, OPM.IntSize, inttyp);
-	EnterTyp("LONGINT",  LInt, OPM.LIntSize, linttyp);
-	EnterTyp("LONGREAL", LReal, OPM.LRealSize, lrltyp);
-	EnterTyp("SHORTINT", SInt, OPM.SIntSize, sinttyp);
-	EnterTyp("BOOLEAN", Bool, OPM.BoolSize, booltyp);
+	EnterTyp("CHAR", Char, SHORT(OPM.CharSize), chartyp);
+	EnterTyp("SET", Set, SHORT(OPM.SetSize), settyp);
+	EnterTyp("REAL", Real, SHORT(OPM.RealSize), realtyp);
+	EnterTyp("INTEGER", Int, SHORT(OPM.IntSize), inttyp);
+	EnterTyp("LONGINT",  LInt, SHORT(OPM.LIntSize), linttyp);
+	EnterTyp("LONGREAL", LReal, SHORT(OPM.LRealSize), lrltyp);
+	EnterTyp("SHORTINT", SInt, SHORT(OPM.SIntSize), sinttyp);
+	EnterTyp("BOOLEAN", Bool, SHORT(OPM.BoolSize), booltyp);
 	EnterBoolConst("FALSE", 0);	(* 0 and 1 are compiler internal representation only *)
 	EnterBoolConst("TRUE",  1);
 	EnterProc("HALT", haltfn);
@@ -1097,7 +1097,7 @@ BEGIN topScope := NIL; OpenScope(0, NIL); OPM.errpos := 0;
 	impCtxt.ref[NoTyp] := notyp; impCtxt.ref[Pointer] := sysptrtyp
 END OfrontOPT.
 
-Objects:
+Objects:
 
     mode  | adr    conval  link     scope    leaf
    ------------------------------------------------
@@ -1240,4 +1240,3 @@ stat          NIL
               Nreturn             proc     nextexpr            stat     (proc = NIL for mod)
               Nwith                        ifstat    stat      stat
               Ntrap                                  expr      stat
-

@@ -1,11 +1,10 @@
-MODULE BrowserCmd;	(* RC 29.10.93 *)	(* object model 4.12.93, command line version jt 4.4.95 *)
+MODULE OfrontBrowser;	(* RC 29.10.93 *)	(* object model 4.12.93 *)
 
 	IMPORT
 		OPM := OfrontOPM, OPS := OfrontOPS, OPT := OfrontOPT, OPV := OfrontOPV,
-		Texts := CmdlnTexts, Console, Args;
+		TextModels, TextMappers, TextViews, TextControllers, Views, Files, Dialog;
 
 	CONST
-		OptionChar = "-";
 		(* object modes *)
 		Var = 1; VarPar = 2; Con = 3; Fld = 4; Typ = 5; LProc = 6; XProc = 7;
 		SProc = 8; CProc = 9; IProc = 10; Mod = 11; Head = 12; TProc = 13;
@@ -26,16 +25,18 @@ MODULE BrowserCmd;	(* RC 29.10.93 *)	(* object model 4.12.93, command line versi
 		Svalpar = 23; Svarpar = 24; Sfld = 25; Srfld = 26; Shdptr = 27; Shdpro = 28; Stpro = 29; Shdtpro = 30;
 		Sxpro = 31; Sipro = 32; Scpro = 33; Sstruct = 34; Ssys = 35; Sptr = 36; Sarr = 37; Sdarr = 38; Srec = 39; Spro = 40;
 
+		maxImps = 31;
+
 	VAR
-		W: Texts.Writer;
-		option: CHAR;
+		option: SHORTCHAR;
+		W: TextMappers.Formatter;
 
-	PROCEDURE Ws(s: ARRAY OF CHAR); BEGIN Texts.WriteString(W, s) END Ws;
-	PROCEDURE Wch(ch: CHAR); BEGIN Texts.Write(W, ch) END Wch;
-	PROCEDURE Wi(i: LONGINT); BEGIN Texts.WriteInt(W, i, 0) END Wi;
-	PROCEDURE Wln; BEGIN Texts.WriteLn(W) END Wln;
+	PROCEDURE Ws(s: ARRAY OF SHORTCHAR); BEGIN W.WriteSString(s) END Ws;
+	PROCEDURE Wch(ch: SHORTCHAR); BEGIN W.WriteChar(ch) END Wch;
+	PROCEDURE Wi(i: INTEGER); BEGIN W.WriteInt(i) END Wi;
+	PROCEDURE Wln; BEGIN W.WriteLn() END Wln;
 
-	PROCEDURE Indent(i: INTEGER);
+	PROCEDURE Indent(i: SHORTINT);
 	BEGIN WHILE i > 0 DO Wch(" "); Wch(" "); DEC(i) END
 	END Indent;
 
@@ -47,7 +48,7 @@ MODULE BrowserCmd;	(* RC 29.10.93 *)	(* object model 4.12.93, command line versi
 	BEGIN first := TRUE;
 		res := (result # NIL) (* hidden mthd *) & (result # OPT.notyp);
 		paren := res OR (par # NIL);
-		IF paren THEN Ws(" (") END ;
+		IF paren THEN Wch("(") END ;
 		WHILE par # NIL DO
 			IF ~first THEN Ws("; ") ELSE first := FALSE END ;
 			IF option = "x" THEN Wi(par^.adr); Wch(" ") END ;
@@ -60,7 +61,7 @@ MODULE BrowserCmd;	(* RC 29.10.93 *)	(* object model 4.12.93, command line versi
 	END Wsign;
 
 	PROCEDURE Objects(obj: OPT.Object; mode: SET);
-		VAR i: LONGINT; m: INTEGER; s: SET; ext: OPT.ConstExt;
+		VAR i: INTEGER; m: SHORTINT; s: SET; ext: OPT.ConstExt;
 	BEGIN
 		IF obj # NIL THEN
 			Objects(obj^.left, mode);
@@ -73,12 +74,12 @@ MODULE BrowserCmd;	(* RC 29.10.93 *)	(* object model 4.12.93, command line versi
 								IF obj^.conval^.intval = 1 THEN Ws("TRUE") ELSE Ws("FALSE") END
 						| Char:
 								IF (obj^.conval^.intval >= 32) & (obj^.conval^.intval <= 126) THEN 
-									Wch(22X); Wch(CHR(obj^.conval^.intval)); Wch(22X)
+									Wch(22X); Wch(SHORT(CHR(obj^.conval^.intval))); Wch(22X)
 								ELSE
 									i := obj^.conval^.intval DIV 16;
-									IF i > 9 THEN Wch(CHR(55 + i)) ELSE Wch(CHR(48 + i)) END ;
+									IF i > 9 THEN Wch(SHORT(CHR(55 + i))) ELSE Wch(SHORT(CHR(48 + i))) END ;
 									i := obj^.conval^.intval MOD 16;
-									IF i > 9 THEN Wch(CHR(55 + i)) ELSE Wch(CHR(48 + i)) END ;
+									IF i > 9 THEN Wch(SHORT(CHR(55 + i))) ELSE Wch(SHORT(CHR(48 + i))) END ;
 									Wch("X")
 								END
 						| SInt, Int, LInt:
@@ -93,9 +94,9 @@ MODULE BrowserCmd;	(* RC 29.10.93 *)	(* object model 4.12.93, command line versi
 								END ;
 								Wch("}")
 						| Real:
-								Texts.WriteReal(W, SHORT(obj^.conval^.realval), 16)
+								W.WriteReal(SHORT(obj^.conval^.realval))
 						| LReal:
-								Texts.WriteLongReal(W, obj^.conval^.realval, 23)
+								W.WriteReal(obj^.conval^.realval)
 						| String:
 								Ws(obj^.conval^.ext^)
 						| NilTyp:
@@ -139,7 +140,7 @@ MODULE BrowserCmd;	(* RC 29.10.93 *)	(* object model 4.12.93, command line versi
 	BEGIN
 		IF obj # NIL THEN
 			Wmthd(obj^.left);
-			IF (obj^.mode = TProc) & ((obj^.name # OPM.HdTProcName) OR (option = "x")) THEN
+			IF obj^.mode = TProc THEN
 				Indent(3); Ws("PROCEDURE (");
 				IF obj^.name # OPM.HdTProcName THEN
 					IF obj^.link^.mode = VarPar THEN Ws("VAR ") END ;
@@ -221,24 +222,23 @@ MODULE BrowserCmd;	(* RC 29.10.93 *)	(* object model 4.12.93, command line versi
 		END
 	END Wtype;
 
-	PROCEDURE WModule(name: OPS.Name; T: Texts.Text);
-		VAR i: INTEGER;
-			beg, end: LONGINT; first, done: BOOLEAN;
+	PROCEDURE WModule(name: OPS.Name; T: TextModels.Model; VAR done: BOOLEAN);
+		VAR i: SHORTINT;
+			beg, end: INTEGER; first: BOOLEAN;
+			lname: ARRAY 128 OF CHAR;
 
-		PROCEDURE Header(s: ARRAY OF CHAR);
+		PROCEDURE Header(s: ARRAY OF SHORTCHAR);
 		BEGIN
-			beg := W.buf.len; Indent(1); Ws(s); Wln; end := W.buf.len
+			beg := T.Length(); Indent(1); Ws(s); Wln; end := T.Length()
 		END Header;
 
 		PROCEDURE CheckHeader;
-		 	VAR len: LONGINT;
 		BEGIN
-			len := T.len;
-			IF end = W.buf.len THEN Texts.Append(T, W.buf); Texts.Delete(T, len+beg, len+end)
+			IF end = T.Length() THEN T.Delete(beg, end)
 			ELSE Wln
 			END
 		END CheckHeader;
-				
+
 	BEGIN
 		OPT.Import("@notself", name, done);
 		IF done THEN
@@ -256,48 +256,60 @@ MODULE BrowserCmd;	(* RC 29.10.93 *)	(* object model 4.12.93, command line versi
 			Header("VAR"); Objects(OPT.GlbMod[0].right, {Var}); CheckHeader;
 			Objects(OPT.GlbMod[0].right, {XProc, IProc, CProc});
 			Wln;
-			Ws("END "); Ws(name); Wch("."); Wln; Texts.Append(T, W.buf)
+			Ws("END "); Ws(name); Wch("."); Wln
 		ELSE
-			Texts.WriteString(W, name); Texts.WriteString(W, " -- symbol file not found");
-			Texts.WriteLn(W); Texts.Append(T, W.buf)
+			lname := name$;
+			Dialog.ShowParamStatus("#ofront:symNotFound", lname, "", "")
 		END
 	END WModule;
-	
-	PROCEDURE Ident(VAR name, first: ARRAY OF CHAR);
-		VAR i, j: INTEGER; ch: CHAR;
+
+	PROCEDURE GetArgs(VAR S: TextMappers.Scanner);
+		VAR c: TextControllers.Controller; beg, end: INTEGER;
+	BEGIN S.type := TextMappers.invalid;
+		c := TextControllers.Focus();  (* get the focus controller, if any *)
+		IF c # NIL THEN
+			IF c.HasSelection() THEN c.GetSelection(beg, end);
+				S.ConnectTo(c.text); S.SetPos(beg); S.Scan
+			END
+		END
+	END GetArgs;
+
+	PROCEDURE Ident(IN name: ARRAY OF CHAR; VAR first: ARRAY OF SHORTCHAR);
+		VAR i, j: SHORTINT; ch: CHAR;
 	BEGIN i := 0;
 		WHILE name[i] # 0X DO INC(i) END ;
 		WHILE (i >= 0) & (name[i] # "/") DO DEC(i) END ;
 		INC(i); j := 0; ch := name[i];
-		WHILE (ch # ".") & (ch # 0X) DO first[j] := ch; INC(i); INC(j); ch := name[i] END ;
+		WHILE (ch # ".") & (ch # 0X) DO first[j] := SHORT(ch); INC(i); INC(j); ch := name[i] END ;
 		first[j] := 0X
 	END Ident;
 
-	PROCEDURE ShowDef*;
-		VAR T, dummyT: Texts.Text; S, vname, name: OPS.Name; R: Texts.Reader; ch: CHAR;
-			s: ARRAY 1024 OF CHAR; i: INTEGER;
+	PROCEDURE Append(VAR d: ARRAY OF CHAR; IN s: ARRAY OF SHORTCHAR);
+		VAR i, j: SHORTINT; ch: SHORTCHAR;
 	BEGIN
-		option := 0X; Args.Get(1, S);
-		IF Args.argc > 2 THEN
-			IF S[0] = OptionChar THEN option := S[1]; Args.Get(2, S)
-			ELSE Args.Get(2, vname); option := vname[1]
-			END
-		END ;
-		IF Args.argc >= 2 THEN
-			Ident(S, name);
-			NEW(T); Texts.Open(T, "");
-			OPT.Init(name, {}); OPT.SelfName := "AvoidErr154"; WModule(name, T); OPT.Close;
-			Texts.OpenReader(R, T, 0); Texts.Read(R, ch); i := 0;
-			WHILE ~R.eot DO
-				IF ch = 0DX THEN s[i] := 0X; i := 0; Console.String(s); Console.Ln
-				ELSE s[i] := ch; INC(i)
-				END ;
-				Texts.Read(R, ch)
-			END ;
-			s[i] := 0X; Console.String(s)
+		i := 0; WHILE d[i] # 0X DO INC(i) END ;
+		j := 0; REPEAT ch := s[j]; d[i] := ch; INC(i); INC(j) UNTIL ch = 0X
+	END Append;
+
+	PROCEDURE ShowDef*;
+		VAR S: TextMappers.Scanner; T: TextModels.Model; 
+			vname: Views.Title; name: OPS.Name; done: BOOLEAN;
+	BEGIN
+		GetArgs(S);
+		IF S.type = TextMappers.string THEN
+			Ident(S.string, name); vname := name$;
+			Append(vname, ".Def");
+			T := TextModels.dir.New();
+			W.ConnectTo(T); W.SetPos(0);
+			option := 0X; OPT.Init(name, {}); OPT.SelfName := "AvoidErr154";
+			WModule(name, T, done);
+			OPT.Close;
+			IF done THEN Views.OpenAux(TextViews.dir.New(T), vname) END
 		END
 	END ShowDef;
 
 BEGIN
-	OPT.typSize := OPV.TypSize; Texts.OpenWriter(W); ShowDef
-END BrowserCmd.
+	OPT.typSize := OPV.TypSize
+END OfrontBrowser.
+
+OfrontBrowser OfrontCmd OfrontOPP OfrontOPB OfrontOPV OfrontOPC OfrontOPT OfrontOPS OfrontOPM 
