@@ -4,7 +4,7 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96 *)
 		26.7.2002 jt, bug fix in Len: wrong result if called for fixed Array
 	*)
 
-	IMPORT OPT := OfrontOPT, OPC := OfrontOPC, OPM := OfrontOPM, OPS := OfrontOPS, Out;
+	IMPORT OPT := OfrontOPT, OPC := OfrontOPC, OPM := OfrontOPM, OPS := OfrontOPS;
 	
 	CONST
 		(* object modes *)
@@ -19,6 +19,7 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96 *)
 		conv = 20; abs = 21; cap = 22; odd = 23; not = 33;
 		(*SYSTEM*)
 		adr = 24; cc = 25; bit = 26; lsh = 27; rot = 28; val = 29;
+		unsgn = 40; (* псевдооперация unsigned  для div *)
 
 		(* structure forms *)
 		Byte = 1; Bool = 2; Char = 3; SInt = 4; Int = 5; LInt = 6;
@@ -80,7 +81,7 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96 *)
 		MaxPrec = 12;
 		ProcTypeVar = 11; (* precedence number when a call is made with a proc type variable *)
 
-		internal = 0;
+		internal = 0; outPar = 4;
 
 	TYPE
 		ExitInfo = RECORD level, label: SHORTINT END ;
@@ -264,9 +265,9 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96 *)
 					RETURN 9
 		|	Nmop:
 					CASE subclass OF
-						not, minus, adr, val, conv:
+						not, minus, adr, val, conv, unsgn:
 								RETURN 9
-					|	is, abs, cap, odd, cc:
+					|	is, abs, cap, odd, cc, bit:
 								RETURN 10
 					END
 		|	Ndop:
@@ -330,7 +331,7 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96 *)
 	PROCEDURE Convert(n: OPT.Node; form, prec: SHORTINT);
 		VAR from: SHORTINT;
 	BEGIN from := n^.typ^.form;
-		IF form = Set THEN OPM.WriteString(SetOfFunc); Entier(n, MinPrec); OPM.Write(CloseParen)
+		IF form = Set THEN OPM.WriteString("(SET)"); Entier(n, 9)
 		ELSIF form = LInt THEN
 			IF from < LInt THEN OPM.WriteString("(LONGINT)") END ;
 			Entier(n, 9)
@@ -374,6 +375,8 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96 *)
 		ELSIF (n^.class = Nmop) & (n^.subcl = val) THEN
 			(*SYSTEM.VAL(typ, var par rec)*)
 			OPC.TypeOf(n^.left^.obj)
+		ELSIF n^.typ^.form = NilTyp THEN	(* NIL *)
+			OPM.WriteString("NIL")
 		ELSE	(* var par rec *)
 			OPC.TypeOf(n^.obj)
 		END
@@ -493,13 +496,19 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96 *)
 		OPM.Write(OpenParen);
 		WHILE n # NIL DO typ := fp^.typ;
 			comp := typ^.comp; form := typ^.form; mode := fp^.mode; prec := MinPrec;
-			IF (mode = VarPar) & (n^.class = Nmop) & (n^.subcl = val) THEN	(* avoid cast in lvalue *)
-				OPM.Write(OpenParen); OPC.Ident(n^.typ^.strobj); OPM.WriteString("*)"); prec := 10
+			IF (mode = VarPar) THEN
+				IF (n^.class = Nmop) & (n^.subcl = val) THEN	(* avoid cast in lvalue *)
+					OPM.Write(OpenParen); OPC.Ident(n^.typ^.strobj); OPM.WriteString("*)"); prec := 10
+				ELSIF (fp^.vis = outPar) & (OPC.NofPtrs(typ) # 0) & (aptyp # OPT.niltyp) THEN
+					(*IPFree(n, ap)*)
+				END
 			END ;
 			IF ~(n^.typ^.comp IN {Array, DynArr}) THEN
 				IF mode = VarPar THEN
-					IF ansi & (typ # n^.typ) THEN OPM.WriteString("(void*)") END ;
-					OPM.Write("&"); prec := 9
+					IF n^.typ^.form # NilTyp THEN
+						IF ansi & (typ # n^.typ) THEN OPM.WriteString("(void*)") END ;
+						OPM.Write("&")
+					END; prec := 9
 				ELSIF ansi THEN
 					IF (comp IN {Array, DynArr}) & (n^.class = Nconst) THEN
 						OPM.WriteString("(CHAR*)")	(* force to unsigned char *)
@@ -611,7 +620,9 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96 *)
 					|	odd:
 								OPM.WriteString("__ODD("); expr(l, MinPrec); OPM.Write(CloseParen)
 					|	adr: (*SYSTEM*)
-								OPM.WriteString("(LONGINT)");
+								IF OPM.PointerSize = OPM.IntSize THEN OPM.WriteString("(INTEGER)")
+								ELSE OPM.WriteString("(LONGINT)")
+								END;
 								IF l^.class = Nvarpar THEN OPC.CompleteIdent(l^.obj)
 								ELSE
 									IF (l^.typ^.form # String) & ~(l^.typ^.comp IN {Array, DynArr}) THEN OPM.Write("&") END ;
@@ -626,6 +637,13 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96 *)
 									OPM.WriteString("__VAL("); OPC.Ident(n^.typ^.strobj); OPM.WriteString(Comma);
 									expr(l, MinPrec); OPM.Write(CloseParen)
 								END
+					|	bit:
+								OPM.WriteString(SetOfFunc); expr(l, MinPrec); OPM.Write(CloseParen)
+					|	unsgn:
+								IF form < LInt THEN OPM.WriteString("(unsigned)")
+													ELSE OPM.WriteString("(unsigned long)")
+								END ;
+								OPM.Write("("); expr(l, MinPrec); OPM.Write(")")
 					ELSE OPM.err(200)
 					END
 		|	Ndop:
@@ -866,6 +884,31 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96 *)
 
 	PROCEDURE stat(n: OPT.Node; outerProc: OPT.Object);
 		VAR proc: OPT.Object; saved: ExitInfo; l, r: OPT.Node;
+
+		(* строит условие цикла do...while() для оператора FOR *)
+		PROCEDURE ForUntil (id: OPT.Node; cond: SHORTINT; z: OPT.Node);
+		(* id-переменная цикла, cond - условие завершения цикла, z -шаг *)
+			VAR step: LONGINT;
+		BEGIN
+			step := z^.conval^.intval;
+			IF cond = neq THEN OPM.WriteString( "!" ) ; END;
+			IF step = 1 THEN OPM.WriteString( "++" ) ; OPC.CompleteIdent(id^.obj)
+			ELSIF step = -1 THEN OPM.WriteString( "--" ) ; OPC.CompleteIdent(id^.obj)
+			ELSIF step = 0 THEN OPC.CompleteIdent(id^.obj)  (* только сравнение, изменение переменной происходит в начале цикла *)
+			ELSE (* шаг не единичный *)
+				IF cond # eql THEN OPM.WriteString( "(" ) END;
+				OPC.CompleteIdent(id^.obj); OPM.WriteString( "+=" ); expr(z, MinPrec);
+				IF cond # eql THEN OPM.WriteString( ")" ) END;
+			END;
+			CASE cond OF (* условие ~cond *)
+			eql, neq :    (* empty *);
+			| lss  : OPM.WriteString(" >= 0");
+			| leq  : OPM.WriteString(" > 0");
+			| gtr   : OPM.WriteString(" <= 0");
+			| geq : OPM.WriteString(" < 0");
+			END;
+		END ForUntil;
+
 	BEGIN
 		WHILE (n # NIL) & OPM.noerr DO
 			OPM.errpos := n^.conval^.intval;
@@ -899,13 +942,17 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96 *)
 									END ;
 									OPM.Write(CloseParen)
 								ELSE
+									IF l^.typ^.comp = Record THEN OPM.WriteString("__COPYREC(") END;
 									IF (l^.typ^.form = Pointer) & (l^.obj # NIL) & (l^.obj^.adr = 1) & (l^.obj^.mode = Var) THEN
 										l^.obj^.adr := 0; design(l, MinPrec); l^.obj^.adr := 1;			(* avoid cast of WITH-variable *)
 										IF r^.typ^.form # NilTyp THEN OPM.WriteString(" = (void*)")
 										ELSE OPM.WriteString(" = ")
 										END
 									ELSE
-										design(l, MinPrec); OPM.WriteString(" = ")
+										design(l, MinPrec);
+										IF l^.typ^.comp = Record THEN OPM.WriteString(Comma)
+										ELSE OPM.WriteString(" = ")
+										END
 									END ;
 									IF l^.typ = r^.typ THEN expr(r, MinPrec)
 									ELSIF (l^.typ^.form = Pointer) & (r^.typ^.form # NilTyp) & (l^.typ^.strobj # NIL) THEN
@@ -913,6 +960,9 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96 *)
 									ELSIF l^.typ^.comp = Record THEN
 										OPM.WriteString("*("); OPC.Andent(l^.typ); OPM.WriteString("*)&"); expr(r, 9)
 									ELSE expr(r, MinPrec)
+									END;
+									IF l^.typ^.comp = Record THEN
+										OPM.WriteString(Comma); OPM.WriteInt(l^.typ^.size); OPM.Write(")")
 									END
 								END
 					|	newfn:
@@ -973,7 +1023,13 @@ MODULE OfrontOPV;	(* J. Templ 16.2.95 / 3.7.96 *)
 						DEC(exit.level)
 			|	Nrepeat:
 						INC(exit.level); OPM.WriteString("do "); OPC.BegBlk; stat(n^.left, outerProc); OPC.EndBlk0;
-						OPM.WriteString(" while (!");  expr(n^.right, 9); OPM.Write(CloseParen);
+						IF n^.right^.class = Nassign THEN (* цикл FOR *)
+							OPM.WriteString(" while (");
+							ForUntil(n^.right^.left, n^.right^.subcl, n^.right^.right);
+							OPM.Write(")");
+						ELSE (* обычный REPEAT UNTIL *)
+							OPM.WriteString(" while (!");  expr(n^.right, 9); OPM.Write(CloseParen);
+						END;
 						DEC(exit.level)
 			|	Nloop:
 						saved := exit; exit.level := 0; exit.label := -1;

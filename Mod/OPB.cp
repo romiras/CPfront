@@ -12,7 +12,8 @@ MODULE OfrontOPB;	(* RC 6.3.89 / 21.2.94 *)	(* object model 17.1.93 *)
 		conv = 20; abs = 21; cap = 22; odd = 23; not = 33;
 		(*SYSTEM*)
 		adr = 24; cc = 25; bit = 26; lsh = 27; rot = 28; val = 29;
-		
+		unsgn = 40;
+
 		(* object modes *)
 		Var = 1; VarPar = 2; Con = 3; Fld = 4; Typ = 5; LProc = 6; XProc = 7;
 		SProc = 8; CProc = 9; IProc = 10; Mod = 11; Head = 12; TProc = 13;
@@ -21,7 +22,7 @@ MODULE OfrontOPB;	(* RC 6.3.89 / 21.2.94 *)	(* object model 17.1.93 *)
 		Undef = 0; Byte = 1; Bool = 2; Char = 3; SInt = 4; Int = 5; LInt = 6;
 		Real = 7; LReal = 8; Set = 9; String = 10; NilTyp = 11; NoTyp = 12;
 		Pointer = 13; ProcTyp = 14; Comp = 15;
-		intSet = {SInt..LInt}; realSet = {Real, LReal};
+		intSet = {Byte, SInt..LInt}; realSet = {Real, LReal};
 
 		(* composite structure forms *)
 		Basic = 1; Array = 2; DynArr = 3; Record = 4;
@@ -39,17 +40,21 @@ MODULE OfrontOPB;	(* RC 6.3.89 / 21.2.94 *)	(* object model 17.1.93 *)
 		entierfn = 5; oddfn = 6; minfn = 7; maxfn = 8; chrfn = 9;
 		shortfn = 10; longfn = 11; sizefn = 12; incfn = 13; decfn = 14;
 		inclfn = 15; exclfn = 16; lenfn = 17; copyfn = 18; ashfn = 19; assertfn = 32;
-		
+		bitsfn = 37;
+
 		(*SYSTEM function number*)
 		adrfn = 20; ccfn = 21; lshfn = 22; rotfn = 23;
 		getfn = 24; putfn = 25; getrfn = 26; putrfn = 27;
 		bitfn = 28; valfn = 29; sysnewfn = 30; movefn = 31;
 
 		(* module visibility of objects *)
-		internal = 0; external = 1; externalR = 2;
+		internal = 0; external = 1; externalR = 2; inPar = 3; outPar = 4;
 
 		(* procedure flags (conval^.setval) *)
 		hasBody = 1; isRedef = 2; slNeeded = 3;
+
+		(* sysflags *)
+		nilBit = 1;
 
 		AssertTrap = 0;	(* default trap number *)
 
@@ -69,7 +74,7 @@ MODULE OfrontOPB;	(* RC 6.3.89 / 21.2.94 *)	(* object model 17.1.93 *)
 		  Var:
 				node := OPT.NewNode(Nvar); node^.readonly := (obj^.vis = externalR) & (obj^.mnolev < 0)
 		| VarPar:
-				node := OPT.NewNode(Nvarpar)
+				node := OPT.NewNode(Nvarpar); node^.readonly := obj^.vis = inPar;
 		| Con:
 				node := OPT.NewNode(Nconst); node^.conval := OPT.NewConst();
 				node^.conval^ := obj^.conval^	(* string is not copied, only its ref *)
@@ -106,7 +111,30 @@ MODULE OfrontOPB;	(* RC 6.3.89 / 21.2.94 *)	(* object model 17.1.93 *)
 	BEGIN
 		IF i = 0 THEN RETURN FALSE ELSE RETURN TRUE END
 	END IntToBool;
-	
+
+	PROCEDURE SetToInt (s: SET): INTEGER;
+		VAR x, i: INTEGER;
+	BEGIN
+		i := 31; x := 0;
+		IF 31 IN s THEN x := -1 END;
+		WHILE i > 0 DO
+			x := x * 2; DEC(i);
+			IF i IN s THEN INC(x) END
+		END;
+		RETURN x
+	END SetToInt;
+
+	PROCEDURE IntToSet (x: INTEGER): SET;
+		VAR i: INTEGER; s: SET;
+	BEGIN
+		i := 0; s := {};
+		WHILE i < 32 DO
+			IF ODD(x) THEN INCL(s, i) END;
+			x := x DIV 2; INC(i)
+		END;
+		RETURN s
+	END IntToSet;
+
 	PROCEDURE NewBoolConst*(boolval: BOOLEAN): OPT.Node;
 		VAR x: OPT.Node;
 	BEGIN
@@ -167,7 +195,96 @@ MODULE OfrontOPB;	(* RC 6.3.89 / 21.2.94 *)	(* object model 17.1.93 *)
 		x := OPT.NewNode(Nconst); x^.conval := OPT.NewConst();
 		x^.conval^.intval := intval; SetIntType(x); RETURN x
 	END NewIntConst;
-	
+
+	PROCEDURE NewArrConst*(VAR x:OPT.Node);
+	(* подготовить узел для константного массива *)
+	VAR	n: INTEGER; typ: OPT.Struct;y: OPT.ConstArr;
+				fp: OPT.Object;
+				arrByte: OPT.ConstArrOfByte; arrSInt: OPT.ConstArrOfSInt;
+				arrInt: OPT.ConstArrOfInt;
+	BEGIN
+		n := 1;
+		typ := x^.typ;
+		WHILE (typ^.form =15) & (typ^.comp = 2) DO
+			n := n * typ^.n; (* перемножение размеров по всем измерениям *)
+			typ := typ^.BaseTyp;
+		END;
+		IF typ^.form = Char THEN (* строка *)
+
+		END;
+		(* n - общее кол-во элементов массива, typ - тип элемента *)
+		IF  typ^.form IN intSet+{Bool,Char} THEN (* массив из целых (в т.ч. BYTE)  *)
+			fp := OPT.NewObj(); fp^.typ :=  x^.obj^.typ^.BaseTyp;
+			fp^.mode := Var;  (*  fp  - переменная, элемент массива *)
+			NEW(y);
+			(* тут нужно выделить кусок  памяти для n элементов массива *)
+			CASE typ^.size OF (* Размер элементов массива в байтах (для BlackBox). *)
+			| 1:	(* BOOLEAN, CHAR, BYTE (для Ofront'а) *)
+						NEW(arrByte); NEW(arrByte.val, n); y := arrByte;
+			| 2:	 (* типы с размером в 2 байта *)
+						NEW(arrSInt); NEW(arrSInt.val, n); y := arrSInt;
+			| 4:	 (* типы с размером в 4 байта *)
+						NEW(arrInt); NEW(arrInt.val, n); y := arrInt;
+			| 8:	(* 64-разрядных типов пока нет *)
+			END;
+			fp := x^.obj; (* запомним тип "массив"*)
+			x := Nil(); (* как будто это NIL *)
+			x^.typ := OPT.undftyp; (* чтобы никаких операций с конструкцией нельзя было выполнять *)
+			x^.conval^.intval := 0; (* количество элементов массива  уже заполненных*)
+			x^.conval^.intval2 := n; (* сколько всего д б элементов массива *)
+			x^.conval^.arr := y; (* сами элементы *)
+			x^.obj := fp; (* константа с типом "массив" *)
+		ELSE err(51)
+		END;
+	END NewArrConst;
+
+	PROCEDURE Min*(tf: BYTE): INTEGER;
+		VAR m: INTEGER;
+	BEGIN
+		CASE tf OF
+		| Byte: m := -128
+		| SInt: m := OPM.MinSInt
+		| Int: m := OPM.MinInt
+		| LInt: m := OPM.MinLInt
+		END;
+		RETURN m
+	END Min;
+
+	PROCEDURE Max*(tf: BYTE): INTEGER;
+		VAR m: INTEGER;
+	BEGIN
+		CASE tf OF
+		| Byte: m := 127
+		| SInt: m := OPM.MaxSInt
+		| Int: m := OPM.MaxInt
+		| LInt: m := OPM.MaxLInt
+		END;
+		RETURN m
+	END Max;
+
+	PROCEDURE Short2Size*(n: LONGINT; size: INTEGER): INTEGER;
+    		(* укорачивает знаковую константу  до size байтов *)
+	BEGIN
+		CASE size OF
+			| 8 :         (* ничего кодировать не нужно, но пока с таким типом не работает*)
+                  (* node^.typ :=   тип 64-разрядный, пока такой константы нет *)
+			| 4 : n := SHORT(n)    (* MOD не надо, т.к. уже выполнили SHORT(uintval) *)
+			| 2 : n := SHORT( SHORT(n MOD 10000H))
+			| 1 : n := SHORT(SHORT (SHORT(n MOD 100H)))
+		END;
+		RETURN  SHORT(n)
+	END Short2Size;
+
+	PROCEDURE NewShortConst*(uintval: LONGINT; size: INTEGER): OPT.Node;
+		(*  создание новой знаковой константы длиной size байтов, по соответствующей
+		(кодируемой той же комбинацией битов)  беззнаковой константе uintval *)
+	VAR x: OPT.Node;
+	BEGIN
+		x := OPT.NewNode(Nconst); x^.conval := OPT.NewConst();
+		x^.conval^.intval := Short2Size(SHORT(uintval),size); (* пока ставим SHORT. Уберем, когда введем 64битность *)
+		SetIntType(x);  RETURN x
+	END NewShortConst;
+
 	PROCEDURE NewRealConst*(realval: REAL; typ: OPT.Struct): OPT.Node;
 		VAR x: OPT.Node;
 	BEGIN
@@ -184,7 +301,7 @@ MODULE OfrontOPB;	(* RC 6.3.89 / 21.2.94 *)	(* object model 17.1.93 *)
 		x^.conval^.ext := OPT.NewExt(); x^.conval^.ext^ := str;
 		RETURN x
 	END NewString;
-	
+
 	PROCEDURE CharToString(n: OPT.Node);
 		VAR ch: SHORTCHAR;
 	BEGIN
@@ -192,6 +309,19 @@ MODULE OfrontOPB;	(* RC 6.3.89 / 21.2.94 *)	(* object model 17.1.93 *)
 		IF ch = 0X THEN n^.conval^.intval2 := 1 ELSE n^.conval^.intval2 := 2; n^.conval^.ext[1] := 0X END ;
 		n^.conval^.ext[0] := ch; n^.conval^.intval := OPM.ConstNotAlloc; n^.obj := NIL
 	END CharToString;
+
+	PROCEDURE CheckString (n: OPT.Node; typ: OPT.Struct; e: SHORTINT);
+		VAR ntyp: OPT.Struct;
+	BEGIN
+		ntyp := n^.typ;
+		IF (typ^.comp IN {Array, DynArr}) & (typ^.BaseTyp.form = Char) OR (typ^.form = String) THEN
+			IF (n^.class = Nconst) & (ntyp^.form = Char) THEN CharToString(n)
+			ELSIF (ntyp^.comp IN {Array, DynArr}) & (ntyp^.BaseTyp.form = Char) OR (ntyp^.form = String) THEN (* ok *)
+			ELSE err(e)
+			END
+		ELSE err(e)
+		END
+	END CheckString;
 
 	PROCEDURE BindNodes(class: BYTE; typ: OPT.Struct; VAR x: OPT.Node; y: OPT.Node);
 		VAR node: OPT.Node;
@@ -395,6 +525,9 @@ MODULE OfrontOPB;	(* RC 6.3.89 / 21.2.94 *)	(* object model 17.1.93 *)
 					END ;
 					z^.typ := OPT.booltyp
 			| adr: (*SYSTEM.ADR*)
+					IF (z^.class = Nconst) & (f = Char) & (z^.conval^.intval >= 20H) THEN
+						CharToString(z); f := String
+					END ;
 					IF (z^.class < Nconst) OR (f = String) THEN z := NewOp(op, typ, z)
 					ELSE err(127)
 					END ;
@@ -405,11 +538,15 @@ MODULE OfrontOPB;	(* RC 6.3.89 / 21.2.94 *)	(* object model 17.1.93 *)
 					ELSE err(69)
 					END ;
 					z^.typ := OPT.booltyp
+			| unsgn: (* (unsigned) для div *)
+					IF f IN intSet THEN  z := NewOp(op, typ, z)
+					ELSE err(127)
+					END ;
 			END
 		END ;
 		x := z
 	END MOp;
-	
+
 	PROCEDURE CheckPtr(x, y: OPT.Node);
 		VAR g: SHORTINT; p, q, t: OPT.Struct;
 	BEGIN g := y^.typ^.form;
@@ -442,7 +579,8 @@ MODULE OfrontOPB;	(* RC 6.3.89 / 21.2.94 *)	(* object model 17.1.93 *)
 					ELSE err(115)
 					END
 				END ;
-				IF (fp^.mode # ap^.mode) OR checkNames & (fp^.name # ap^.name) THEN err(115) END ;
+				IF (fp^.mode # ap^.mode) OR (fp^.sysflag # ap^.sysflag) OR (fp^.vis # ap^.vis)
+					OR checkNames & (fp^.name # ap^.name) THEN err(115) END ;
 				ap := ap^.link
 			ELSE err(116)
 			END ;
@@ -453,7 +591,7 @@ MODULE OfrontOPB;	(* RC 6.3.89 / 21.2.94 *)	(* object model 17.1.93 *)
 
 	PROCEDURE CheckProc(x: OPT.Struct; y: OPT.Object);	(* proc var x := proc y, check compatibility *)
 	BEGIN
-		IF y^.mode IN {XProc, IProc, LProc} THEN
+		IF (y^.mode IN {XProc, IProc, LProc}) & (x^.sysflag = y^.sysflag) THEN
 			IF y^.mode = LProc THEN
 				IF y^.mnolev = 0 THEN y^.mode := XProc
 				ELSE err(73)
@@ -620,7 +758,7 @@ MODULE OfrontOPB;	(* RC 6.3.89 / 21.2.94 *)	(* object model 17.1.93 *)
 		| plus:
 				IF f IN intSet THEN
 					temp := (yval^.intval >= 0) & (xval^.intval <= MAX(INTEGER) - yval^.intval);
-					IF temp OR (yval^.intval < 0) & (xval^.intval >= MIN(INTEGER) - yval^.intval) THEN 
+					IF temp OR (yval^.intval < 0) & (xval^.intval >= MIN(INTEGER) - yval^.intval) THEN
 							INC(xval^.intval, yval^.intval); SetIntType(x)
 					ELSE err(206)
 					END
@@ -637,7 +775,7 @@ MODULE OfrontOPB;	(* RC 6.3.89 / 21.2.94 *)	(* object model 17.1.93 *)
 		| minus:
 				IF f IN intSet THEN
 					IF (yval^.intval >= 0) & (xval^.intval >= MIN(INTEGER) + yval^.intval) OR
-						(yval^.intval < 0) & (xval^.intval <= MAX(INTEGER) + yval^.intval) THEN 
+						(yval^.intval < 0) & (xval^.intval <= MAX(INTEGER) + yval^.intval) THEN
 							DEC(xval^.intval, yval^.intval); SetIntType(x)
 					ELSE err(207)
 					END
@@ -683,10 +821,16 @@ MODULE OfrontOPB;	(* RC 6.3.89 / 21.2.94 *)	(* object model 17.1.93 *)
 		VAR node: OPT.Node; f, g: SHORTINT; k: INTEGER; r: REAL;
 	BEGIN f := x^.typ^.form; g := typ^.form;
 		IF x^.class = Nconst THEN
-			IF f IN intSet THEN
-				IF g IN intSet THEN
+			IF f = Set THEN
+				x^.conval^.intval := SetToInt(x^.conval^.setval); x^.conval^.realval := 0; x^.conval^.setval := {};
+			ELSIF f IN intSet THEN
+				IF g = Set THEN x^.conval^.setval := IntToSet(x^.conval^.intval)
+				ELSIF g IN intSet THEN
 					IF f > g THEN SetIntType(x);
-						IF x^.typ^.form > g THEN err(203); x^.conval^.intval := 1 END
+						IF (g # Byte)&(x^.typ^.form > g) OR
+						(g=Byte)&( (x^.conval^.intval < Min(Byte)) OR (x^.conval^.intval > Max(Byte)) )
+						THEN err(203); x^.conval^.intval := 1
+						END
 					END
 				ELSIF g IN realSet THEN x^.conval^.realval := x^.conval^.intval; x^.conval^.intval := OPM.ConstNotAlloc
 				ELSE (*g = Char*) k := x^.conval^.intval;
@@ -893,7 +1037,7 @@ MODULE OfrontOPB;	(* RC 6.3.89 / 21.2.94 *)	(* object model 17.1.93 *)
 	PROCEDURE SetRange*(VAR x: OPT.Node; y: OPT.Node);
 		VAR k, l: INTEGER;
 	BEGIN
-		IF (x^.class = Ntype) OR (x^.class = Nproc) OR (y^.class = Ntype) OR (y^.class = Nproc) THEN err(126)	
+		IF (x^.class = Ntype) OR (x^.class = Nproc) OR (y^.class = Ntype) OR (y^.class = Nproc) THEN err(126)
 		ELSIF (x^.typ^.form IN intSet) & (y^.typ^.form IN intSet) THEN
 			IF x^.class = Nconst THEN
 				k := x^.conval^.intval;
@@ -927,11 +1071,11 @@ MODULE OfrontOPB;	(* RC 6.3.89 / 21.2.94 *)	(* object model 17.1.93 *)
 			ELSE err(202)
 			END ;
 			x^.obj := NIL
-		ELSE Convert(x, OPT.settyp)
+		ELSE BindNodes(Nmop, OPT.settyp, x, NIL); x^.subcl := bit
 		END ;
 		x^.typ := OPT.settyp
 	END SetElem;
-	
+
 	PROCEDURE CheckAssign(x: OPT.Struct; ynode: OPT.Node);	(* x := y *)
 		VAR f, g: SHORTINT; y, p, q: OPT.Struct;
 	BEGIN
@@ -993,7 +1137,7 @@ MODULE OfrontOPB;	(* RC 6.3.89 / 21.2.94 *)	(* object model 17.1.93 *)
 			Convert(ynode, x)
 		END
 	END CheckAssign;
-	
+
 	PROCEDURE CheckLeaf(x: OPT.Node; dynArrToo: BOOLEAN);
 	BEGIN
 (*
@@ -1004,7 +1148,7 @@ avoid unnecessary intermediate variables in OFront
 		IF (x^.class = Nvar) & (dynArrToo OR (x^.typ^.comp # DynArr)) THEN x^.obj^.leaf := FALSE END
 *)
 	END CheckLeaf;
-	
+
 	PROCEDURE StPar0*(VAR par0: OPT.Node; fctno: SHORTINT);	(* par0: first param of standard proc *)
 		VAR f: SHORTINT; typ: OPT.Struct; x: OPT.Node;
 	BEGIN x := par0; f := x^.typ^.form;
@@ -1037,12 +1181,18 @@ avoid unnecessary intermediate variables in OFront
 				MOp(abs, x)
 		| capfn: (*CAP*)
 				MOp(cap, x)
-		| ordfn: (*ORD*) 
+		| ordfn: (*ORD*)
 				IF (x^.class = Ntype) OR (x^.class = Nproc) THEN err(126)
 				ELSIF f = Char THEN Convert(x, OPT.inttyp)
+				ELSIF f = Set THEN Convert(x, OPT.inttyp)
 				ELSE err(111)
 				END ;
 				x^.typ := OPT.inttyp
+		| bitsfn: (*BITS*)
+				IF (x^.class = Ntype) OR (x^.class = Nproc) THEN err(126)
+				ELSIF f IN intSet THEN Convert(x, OPT.settyp)
+				ELSE err(111)
+				END
 		| entierfn: (*ENTIER*)
 				IF (x^.class = Ntype) OR (x^.class = Nproc) THEN err(126)
 				ELSIF f IN realSet THEN Convert(x, OPT.linttyp)
@@ -1081,7 +1231,7 @@ avoid unnecessary intermediate variables in OFront
 					END
 				ELSE err(110)
 				END
-		| chrfn: (*CHR*) 
+		| chrfn: (*CHR*)
 				IF (x^.class = Ntype) OR (x^.class = Nproc) THEN err(126)
 				ELSIF f IN {Undef, SInt..LInt} THEN Convert(x, OPT.chartyp)
 				ELSE err(111); x^.typ := OPT.chartyp
@@ -1101,7 +1251,7 @@ avoid unnecessary intermediate variables in OFront
 				ELSIF f = Char THEN Convert(x, OPT.linttyp)
 				ELSE err(111)
 				END
-		| incfn, decfn: (*INC, DEC*) 
+		| incfn, decfn: (*INC, DEC*)
 				IF NotVar(x) THEN err(112)
 				ELSIF ~(f IN intSet) THEN err(111)
 				ELSIF x^.readonly THEN err(76)
@@ -1379,6 +1529,8 @@ avoid unnecessary intermediate variables in OFront
 				END
 			ELSIF parno < 1 THEN err(65)
 			END
+		ELSIF fctno = bitsfn THEN
+			IF parno < 1 THEN err(65) END
 		ELSE (*SYSTEM*)
 			IF (parno < 1) OR
 				(fctno > ccfn) & (parno < 2) OR
@@ -1429,23 +1581,36 @@ avoid unnecessary intermediate variables in OFront
 		END
 	END PrepCall;
 
-	PROCEDURE Param*(ap: OPT.Node; fp: OPT.Object);
+	PROCEDURE Param*(ap: OPT.Node; fp: OPT.Object);	(* checks parameter compatibilty *)
 		VAR q: OPT.Struct;
 	BEGIN
 		IF fp.typ.form # Undef THEN
 			IF fp^.mode = VarPar THEN
-				IF NotVar(ap) THEN err(122)
-				ELSE CheckLeaf(ap, FALSE)
-				END ;
-				IF ap^.readonly THEN err(76) END ;
-				IF fp^.typ^.comp = DynArr THEN DynArrParCheck(fp^.typ, ap^.typ, TRUE)
-				ELSIF (fp^.typ^.comp = Record) & (ap^.typ^.comp = Record) THEN
-					q := ap^.typ;
-					WHILE (q # fp^.typ) & (q # NIL) & (q # OPT.undftyp) DO q := q^.BaseTyp END ;
-					IF q = NIL THEN err(111) END
-				ELSIF (fp^.typ = OPT.sysptrtyp) & (ap^.typ^.form = Pointer) THEN (* ok *)
-				ELSIF (ap^.typ # fp^.typ) & ~((fp^.typ^.form = Byte) & (ap^.typ^.form IN {Char, SInt})) THEN err(123)
-				ELSIF (fp^.typ^.form = Pointer) & (ap^.class = Nguard) THEN err(123)
+				IF ODD(fp^.sysflag DIV nilBit) & (ap^.typ = OPT.niltyp) THEN (* ok *)
+				ELSIF (fp^.typ^.comp = Record) & (fp^.typ^.sysflag = 0) & (ap^.class = Ndop) THEN (* ok *)
+				ELSIF (fp^.typ^.comp = DynArr) & (fp^.typ^.sysflag = 0) & (fp^.typ^.n = 0) & (ap^.class = Ndop) THEN
+					(* ok *)
+				ELSE
+					IF fp^.vis = inPar THEN
+						IF ~NotVar(ap) THEN CheckLeaf(ap, FALSE) END
+					ELSE
+						IF NotVar(ap) THEN err(122)
+						ELSE CheckLeaf(ap, FALSE)
+						END ;
+						IF ap^.readonly THEN err(76) END ;
+					END;
+					IF fp^.typ^.comp = DynArr THEN
+						IF ap^.typ^.form IN {Char, String} THEN CheckString(ap, fp^.typ, 67)
+						ELSE DynArrParCheck(fp^.typ, ap^.typ, fp^.vis # inPar) END
+					ELSIF (fp^.typ^.comp = Record) & (ap^.typ^.comp = Record) THEN
+						q := ap^.typ;
+						WHILE (q # fp^.typ) & (q # NIL) & (q # OPT.undftyp) DO q := q^.BaseTyp END ;
+						IF q = NIL THEN err(111) END
+					ELSIF (fp^.typ = OPT.sysptrtyp) & (ap^.typ^.form = Pointer) THEN (* ok *)
+					ELSIF fp^.vis = inPar THEN CheckAssign(fp^.typ, ap)
+					ELSIF (ap^.typ # fp^.typ) & ~((fp^.typ^.form = Byte) & (ap^.typ^.form IN {Char, SInt})) THEN err(123)
+					ELSIF (fp^.typ^.form = Pointer) & (ap^.class = Nguard) THEN err(123)
+					END
 				END
 			ELSIF fp^.typ^.comp = DynArr THEN
 				IF (ap^.class = Nconst) & (ap^.typ^.form = Char) THEN CharToString(ap) END ;

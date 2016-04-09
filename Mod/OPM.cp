@@ -54,7 +54,7 @@ MODULE OfrontOPM;	(* RC 6.3.89 / 28.6.89, J.Templ 10.7.89 / 8.5.95*)
 		MaxCases* = 128;
 		MaxCaseRange* = 512;
 
-		MaxStruct* = 255;
+		MaxStruct* = 2048;
 
 		(* maximal number of pointer fields in a record: *)
 		MaxPtr* = MAX(INTEGER);
@@ -96,7 +96,7 @@ MODULE OfrontOPM;	(* RC 6.3.89 / 28.6.89, J.Templ 10.7.89 / 8.5.95*)
 		LIntSize*, SetSize*, RealSize*, LRealSize*, PointerSize*, ProcSize*, RecSize*,
 		CharAlign*, BoolAlign*, SIntAlign*, IntAlign*,
 		LIntAlign*, SetAlign*, RealAlign*, LRealAlign*, PointerAlign*, ProcAlign*, RecAlign*,
-		ByteOrder*, BitOrder*, MaxSet*: INTEGER;
+		ByteOrder*, BitOrder*, ForN-, MaxSet*: INTEGER;
 		MinSInt*, MinInt*, MinLInt*, MaxSInt*, MaxInt*, MaxLInt*, MaxIndex*: INTEGER;
 		MinReal*, MaxReal*, MinLReal*, MaxLReal*: REAL;
 
@@ -123,6 +123,8 @@ MODULE OfrontOPM;	(* RC 6.3.89 / 28.6.89, J.Templ 10.7.89 / 8.5.95*)
 		translateList: BOOLEAN;
 		oldSF: Stores.Reader; newSF: Stores.Writer;
 		R: ARRAY 3 OF Files.Writer;
+		workDir, subsys: Files.Name;
+		SFsubdir, CFsubdir: ARRAY 5 + 2 OF CHAR;
 		oldSFile, newSFile, HFile, BFile, HIFile: Files.File;
 		stop, useLineNo: BOOLEAN;	(*useLineNo not supported under Windows *)
 
@@ -142,27 +144,31 @@ MODULE OfrontOPM;	(* RC 6.3.89 / 28.6.89, J.Templ 10.7.89 / 8.5.95*)
 	BEGIN ch := dirs[pos]; i := 0;
 		WHILE ch = ';' DO INC(pos); ch := dirs[pos] END ;
 		WHILE (ch # 0X) & (ch # ';') DO dir[i] := ch; INC(i); INC(pos); ch := dirs[pos] END ;
-		dir[i] := 0X
+		dir[i] := 0X;
+		Strings.Find(dir, "%WorkDir%", 0, i); IF i # -1 THEN Strings.Replace (dir, i, 9, workDir) END;
+		Strings.Find(dir, "%Subsys%", 0, i); IF i # -1 THEN Strings.Replace (dir, i, 8, subsys) END;
 	END Scan;
 
-	PROCEDURE FilesNew(): Files.File;
+	PROCEDURE FilesNew(IN subdir: ARRAY OF CHAR): Files.File;
 		VAR dirs, dir: ARRAY 256 OF CHAR; pos: INTEGER;
 	BEGIN
 		Dialog.MapString(options.dirs, dirs);
 		pos := 0; Scan(dirs, dir, pos);
-		RETURN Files.dir.New(Files.dir.This(dir), Files.ask)
+		RETURN Files.dir.New(Files.dir.This(dir + subdir), Files.ask)
 	END FilesNew;
 
-	PROCEDURE FilesOld(name: Files.Name): Files.File;
+	PROCEDURE FilesOld(IN name: Files.Name; IN subdir: ARRAY OF CHAR): Files.File;
 		VAR dirs, dir: ARRAY 256 OF CHAR; pos: INTEGER; F: Files.File;
 	BEGIN
 		Dialog.MapString(options.dirs, dirs);
 		pos := 0; Scan(dirs, dir, pos);
-		REPEAT F := Files.dir.Old(Files.dir.This(dir), name, Files.shared); Scan(dirs, dir, pos) UNTIL (F # NIL) OR (dir = "");
+		REPEAT
+			F := Files.dir.Old(Files.dir.This(dir + subdir), name, Files.shared); Scan(dirs, dir, pos)
+		UNTIL (F # NIL) OR (dir = "");
 		RETURN F
 	END FilesOld;
 
-	PROCEDURE FilesDelete(name: Files.Name);
+	PROCEDURE FilesDelete(IN name: Files.Name);
 		VAR dirs, dir: ARRAY 256 OF CHAR; pos: INTEGER;
 	BEGIN
 		Dialog.MapString(options.dirs, dirs);
@@ -170,7 +176,7 @@ MODULE OfrontOPM;	(* RC 6.3.89 / 28.6.89, J.Templ 10.7.89 / 8.5.95*)
 		Files.dir.Delete(Files.dir.This(dir), name)
 	END FilesDelete;
 
-	PROCEDURE ViewsOld(name: ARRAY OF CHAR): Views.View;
+	PROCEDURE ViewsOld(IN name: ARRAY OF CHAR): Views.View;
 		VAR dirs, dir: ARRAY 256 OF CHAR; pos: INTEGER;
 	BEGIN
 		Dialog.MapString(options.dirs, dirs);
@@ -398,6 +404,7 @@ MODULE OfrontOPM;	(* RC 6.3.89 / 28.6.89, J.Templ 10.7.89 / 8.5.95*)
 			IF pos < 0 THEN pos := 0 END ;
 			IF (pos < lasterrpos) OR (lasterrpos + 9 < pos) THEN lasterrpos := pos;
 				IF n < 249 THEN
+					IF inC = NIL THEN RETURN END;
 					E := DevMarkers.dir.New(DevMarkers.message);
 					Strings.IntToString(n, s); Dialog.MapString("#ofront:"+s, s);
 					E.InitErr(n); E.InitMsg(s);
@@ -476,6 +483,24 @@ MODULE OfrontOPM;	(* RC 6.3.89 / 28.6.89, J.Templ 10.7.89 / 8.5.95*)
 		END
 	END GetProperty;
 
+	PROCEDURE GetProperty1(R: Files.Reader; name: ARRAY OF CHAR; VAR par: INTEGER; defval: INTEGER);
+		VAR ch: SHORTCHAR; i: INTEGER; s: ARRAY 32 OF CHAR;
+	BEGIN
+		ch := " "; i := 0;
+		WHILE (~R.eof) & (ch <= " ") DO R.ReadByte(SYSTEM.VAL(BYTE, ch)) END ;
+		WHILE (~R.eof) & (ch >" ") DO s[i] := ch; INC(i); R.ReadByte(SYSTEM.VAL(BYTE, ch)) END ;
+		s[i] := 0X;
+		IF s = name THEN i := 0;
+			WHILE (~R.eof) & (ch <= " ") DO R.ReadByte(SYSTEM.VAL(BYTE, ch)) END ;
+			IF (~R.eof) & (ch >= "0") & (ch <= "9") THEN
+				WHILE (~R.eof) & (ch >= "0") & (ch <= "9") DO i := i * 10 + ORD(ch) - ORD("0"); R.ReadByte(SYSTEM.VAL(BYTE, ch)) END ;
+				par := i;
+			ELSE par := defval
+			END
+		ELSE par := defval
+		END
+	END GetProperty1;
+
 	PROCEDURE GetProperties();
 		VAR F: Files.File; R: Files.Reader;
 	BEGIN
@@ -488,7 +513,7 @@ MODULE OfrontOPM;	(* RC 6.3.89 / 28.6.89, J.Templ 10.7.89 / 8.5.95*)
 		MaxSInt := 7FH; MaxInt := 7FFFH; MaxLInt := 7FFFFFFFH;	(*2147483647*)
 		MaxSet := 31;
 		(* read Ofront.par *)
-		F := FilesOld("Ofront.par");
+		F := FilesOld("Ofront.par", CFsubdir);
 		IF F # NIL THEN
 			R := F.NewReader(NIL);
 			R.SetPos(0);
@@ -507,6 +532,8 @@ MODULE OfrontOPM;	(* RC 6.3.89 / 28.6.89, J.Templ 10.7.89 / 8.5.95*)
 				Size = 1; size and alignment follows from field types but at least RecAlign; e.g, SPARC, MIPS, PowerPC
 			*)
 			GetProperty(R, "ENDIAN", ByteOrder, BitOrder);	(*currently not used*)
+			GetProperty1(R, "FOR", ForN, 0);	(* 0: Original (default); 1: Extended; 2: Experimenal *)
+			IF (ForN >= 0) & (ForN <= 2) THEN (* Ok *) ELSE ForN := 0; Mark(-157, -1) END
 		ELSE Mark(-156, -1)
 		END ;
 		IF RealSize = 4 THEN MaxReal := 3.40282346E38
@@ -520,6 +547,7 @@ MODULE OfrontOPM;	(* RC 6.3.89 / 28.6.89, J.Templ 10.7.89 / 8.5.95*)
 		MinReal := -MaxReal;
 		MinLReal := -MaxLReal;
 		IF IntSize = 4 THEN MinInt := MinLInt; MaxInt := MaxLInt END ;
+		IF SIntSize = 2 THEN MinSInt := -8000H; MaxSInt := 7FFFH END ;
 		MaxSet := SetSize * 8 - 1;
 		MaxIndex := MaxLInt
 	END GetProperties;
@@ -563,7 +591,7 @@ MODULE OfrontOPM;	(* RC 6.3.89 / 28.6.89, J.Templ 10.7.89 / 8.5.95*)
 	PROCEDURE OldSym*(VAR modName: ARRAY OF SHORTCHAR; VAR done: BOOLEAN);
 		VAR ch: SHORTCHAR; fileName: Files.Name;
 	BEGIN MakeFileName(modName, fileName, SFext);
-		oldSFile := FilesOld(fileName); done := oldSFile # NIL;
+		oldSFile := FilesOld(fileName, SFsubdir); done := oldSFile # NIL;
 		IF done THEN
 			oldSF.ConnectTo(oldSFile); oldSF.ReadSChar(ch);
 			IF ch # SFtag THEN err(-306);  (*possibly a symbol file from another Oberon implementation, e.g. HP-Oberon*)
@@ -620,7 +648,7 @@ MODULE OfrontOPM;	(* RC 6.3.89 / 28.6.89, J.Templ 10.7.89 / 8.5.95*)
 	PROCEDURE NewSym*(VAR modName: ARRAY OF SHORTCHAR);
 		VAR fileName: Files.Name;
 	BEGIN MakeFileName(modName, fileName, SFext);
-		newSFile := FilesNew();
+		newSFile := FilesNew(SFsubdir);
 		IF newSFile # NIL THEN
 			newSF.ConnectTo(newSFile); newSF.WriteSChar(SFtag)
 		ELSE err(153)
@@ -718,17 +746,17 @@ suffix does not work in K&R *)
 		VAR FName: Files.Name;
 	BEGIN
 		modName := moduleName$;
-		HFile := FilesNew();
+		HFile := FilesNew(CFsubdir);
 		IF HFile # NIL THEN R[HeaderFile] := HFile.NewWriter(NIL) ELSE err(153) END;
 		MakeFileName(moduleName, FName, BFext);
-		BFile := FilesNew();
+		BFile := FilesNew(CFsubdir);
 		IF BFile # NIL THEN R[BodyFile] := BFile.NewWriter(NIL) ELSE err(153) END ;
 		MakeFileName(moduleName, FName, HFext);
-		HIFile := FilesNew();
+		HIFile := FilesNew(CFsubdir);
 		IF HIFile # NIL THEN R[HeaderInclude] := HIFile.NewWriter(NIL) ELSE err(153) END ;
 		IF include0 IN opt THEN
-			MakeFileName(moduleName, FName, ".h0"); Append(R[HeaderInclude], FilesOld(FName));
-			MakeFileName(moduleName, FName, ".c0"); Append(R[BodyFile], FilesOld(FName))
+			MakeFileName(moduleName, FName, ".h0"); Append(R[HeaderInclude], FilesOld(FName, CFsubdir));
+			MakeFileName(moduleName, FName, ".c0"); Append(R[BodyFile], FilesOld(FName, CFsubdir))
 		END
 	END OpenFiles;
 
@@ -805,7 +833,24 @@ suffix does not work in K&R *)
 		IF ~(ansi IN opt) THEN Write("L") END
 	END PromoteIntConstToLInt;
 
+	PROCEDURE SetWorkDir* (
+		IN workdir, subsysdir: ARRAY OF CHAR; useSymObj: BOOLEAN; IN addtoObj: ARRAY 3 OF CHAR);
+	VAR
+		i: INTEGER;
+	BEGIN
+		workDir := workdir$;
+		i := LEN(workDir$) - 1; IF (i >= 0) & ((workDir[i] = "\") OR (workDir[i] = "/")) THEN workDir[i] := 0X END;
+		subsys := subsysdir$;
+		i := LEN(subsys$) - 1; IF (i >= 0) & ((subsys[i] = "\") OR (subsys[i] = "/")) THEN subsys[i] := 0X END;
+		IF useSymObj THEN
+			SFsubdir := "/Sym" + addtoObj; CFsubdir := "/Obj" + addtoObj;
+		ELSE
+			SFsubdir := ""; CFsubdir := "";
+		END;
+	END SetWorkDir;
+
 BEGIN
+	subsys := ""; workDir := ""; SFsubdir := ""; CFsubdir := "";
 	locate.num := 0; GetDefaultOptions
 END OfrontOPM.
 

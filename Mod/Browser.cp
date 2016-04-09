@@ -18,7 +18,10 @@ MODULE OfrontBrowser;	(* RC 29.10.93 *)	(* object model 4.12.93 *)
 		Basic = 1; Array = 2; DynArr = 3; Record = 4;
 
 		(* module visibility of objects *)
-		internal = 0; external = 1; externalR = 2;
+		internal = 0; external = 1; externalR = 2; inPar = 3; outPar = 4;
+
+		(* sysflags *)
+		nilBit = 1;
 
 		(* symbol file items *)
 		Smname = 16; Send = 18; Stype = 19; Salias = 20; Svar = 21; Srvar = 22;
@@ -48,11 +51,14 @@ MODULE OfrontBrowser;	(* RC 29.10.93 *)	(* object model 4.12.93 *)
 	BEGIN first := TRUE;
 		res := (result # NIL) (* hidden mthd *) & (result # OPT.notyp);
 		paren := res OR (par # NIL);
-		IF paren THEN Wch("(") END ;
+		IF paren THEN Ws(" (") END ;
 		WHILE par # NIL DO
 			IF ~first THEN Ws("; ") ELSE first := FALSE END ;
 			IF option = "x" THEN Wi(par^.adr); Wch(" ") END ;
-			IF par^.mode = VarPar THEN Ws("VAR ") END ;
+			IF par^.mode = VarPar THEN
+				IF par^.vis = inPar THEN Ws("IN ") ELSIF par^.vis = outPar THEN Ws("OUT ") ELSE Ws("VAR ") END;
+				IF ODD(par^.sysflag DIV nilBit) THEN Ws("[nil] ") END
+			END ;
 			Ws(par^.name); Ws(": "); Wtype(par^.typ);
 			par := par^.link
 		END ;
@@ -118,15 +124,15 @@ MODULE OfrontBrowser;	(* RC 29.10.93 *)	(* object model 4.12.93 *)
 						Wtype(obj^.typ); Wch(";"); Wln
 				| XProc, CProc, IProc:
 						Indent(1); Ws("PROCEDURE ");
+						IF obj^.sysflag # 0 THEN Ws("[1] ") END;
 						IF obj^.mode = IProc THEN Wch("+")
 						ELSIF obj^.mode = CProc THEN Wch("-")
 						END ;
 						Ws(obj^.name);
 						Wsign(obj^.typ, obj^.link);
 						IF obj^.mode = CProc THEN
-							ext := obj^.conval^.ext; m := ORD(ext^[0]); i := 1; Ws('  "');
-							WHILE i <= m DO Wch(ext^[i]); INC(i) END ;
-							Wch('"');
+							ext := obj^.conval^.ext; m := ORD(ext^[0]); i := 1;
+							IF m > 0 THEN Ws('  "'); WHILE i <= m DO Wch(ext^[i]); INC(i) END; Wch('"') END;
 						END ;
 						Wch(";"); Wln
 				END
@@ -141,9 +147,14 @@ MODULE OfrontBrowser;	(* RC 29.10.93 *)	(* object model 4.12.93 *)
 		IF obj # NIL THEN
 			Wmthd(obj^.left);
 			IF obj^.mode = TProc THEN
-				Indent(3); Ws("PROCEDURE (");
+				Indent(3); Wch("(");
 				IF obj^.name # OPM.HdTProcName THEN
-					IF obj^.link^.mode = VarPar THEN Ws("VAR ") END ;
+					IF obj^.link^.mode = VarPar THEN
+						IF obj^.link^.vis = inPar THEN Ws("IN ")
+						ELSIF obj^.link^.vis = outPar THEN Ws("OUT ") ELSE Ws("VAR ")
+						END;
+						IF ODD(obj^.link^.sysflag DIV nilBit) THEN Ws("[nil] ") END
+					END ;
 					Ws(obj^.link^.name); Ws(": "); Wtype(obj^.link^.typ)
 				END ;
 				Ws(") "); Ws(obj^.name);
@@ -175,7 +186,7 @@ MODULE OfrontBrowser;	(* RC 29.10.93 *)	(* object model 4.12.93 *)
 		| Pointer:
 				Ws("POINTER "); SysFlag; Ws("TO "); Wtype(typ^.BaseTyp)
 		| ProcTyp:
-				Ws("PROCEDURE "); SysFlag; Wsign(typ^.BaseTyp, typ^.link)
+				Ws("PROCEDURE"); IF typ^.sysflag # 0 THEN Ws(" [1]") END; Wsign(typ^.BaseTyp, typ^.link)
 		| Comp:
 				CASE typ^.comp OF
 				| Array:
@@ -212,7 +223,7 @@ MODULE OfrontBrowser;	(* RC 29.10.93 *)	(* object model 4.12.93 *)
 		obj := typ^.strobj;
 		IF obj^.name # "" THEN
 			IF typ^.mno # 0 THEN Ws(OPT.GlbMod[typ^.mno].name); Wch(".")
-			ELSIF (typ = OPT.bytetyp) OR (typ = OPT.sysptrtyp) THEN Ws("SYSTEM.")
+			ELSIF typ = OPT.sysptrtyp THEN Ws("SYSTEM.")
 			ELSIF obj^.vis = internal THEN Wch("#")
 			END ;
 			Ws(obj^.name)

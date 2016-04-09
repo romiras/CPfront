@@ -1,7 +1,10 @@
 MODULE OfrontOPC;	(* copyright (c) J. Templ 12.7.95 / 16.5.98 *)
 (* C source code generator version
 
-	30.4.2000 jt, various promotion rules changed (long) => (LONGINT), xxxL avoided
+	2000-04-30 jt, synchronized with BlackBox version, in particular
+		various promotion rules changed (long) => (LONGINT), xxxL avoided
+	2015-10-07 jt, fixed endless recursion in Stars for imported fields of anonymous type POINTER TO DynArr;
+		param typ has a strobj pointer to an anonymous object, i.e. typ.strobj.name = ""
 *)
 
 	IMPORT OPT := OfrontOPT, OPM := OfrontOPM;
@@ -170,7 +173,7 @@ starsLevel: INTEGER;
 				ELSE OPM.WriteStringVar(OPM.modName)
 				END ;
 				OPM.Write(Underscore)
-			ELSIF (obj = OPT.sysptrtyp^.strobj) OR (obj = OPT.bytetyp^.strobj) THEN
+			ELSIF obj = OPT.sysptrtyp^.strobj THEN
 				OPM.WriteString("SYSTEM_")
 			END ;
 			OPM.WriteStringVar(obj^.name)
@@ -188,12 +191,15 @@ IF starsLevel > 10 THEN HALT(99) END ;
 				Stars (typ^.BaseTyp, openClause);
 				openClause := (typ^.comp = Array)
 			ELSIF typ^.form = ProcTyp THEN
-				OPM.Write(OpenParen); OPM.Write(Star)
+				OPM.Write(OpenParen);
+				IF typ^.sysflag # 0 THEN OPM.WriteString("__CALL_1 ") END; OPM.Write(Star)
 			ELSE
 				pointers := 0;
-				WHILE (typ^.strobj = NIL) & (typ^.form = Pointer) DO INC (pointers); typ := typ^.BaseTyp END ;
-				IF typ^.comp # DynArr THEN Stars (typ, openClause) END ;
+				WHILE ((typ^.strobj = NIL) OR (typ^.strobj^.name = "")) & (typ^.form = Pointer) DO
+					INC (pointers); typ := typ^.BaseTyp
+				END ;
 				IF pointers > 0 THEN
+					IF typ^.comp # DynArr THEN Stars (typ, openClause) END ;
 					IF openClause THEN OPM.Write(OpenParen); openClause := FALSE END ;
 					WHILE pointers > 0 DO OPM.Write(Star); DEC (pointers) END
 				END
@@ -202,7 +208,7 @@ IF starsLevel > 10 THEN HALT(99) END ;
 ; DEC(starsLevel);
 	END Stars;
 
-	PROCEDURE ^AnsiParamList (obj: OPT.Object; showParamNames: BOOLEAN);
+	PROCEDURE ^AnsiParamList (obj: OPT.Object; showParamNames, showOberonParams: BOOLEAN);
 
 	PROCEDURE DeclareObj(dcl: OPT.Object; scopeDef: BOOLEAN);
 		VAR
@@ -228,7 +234,7 @@ IF starsLevel > 10 THEN HALT(99) END ;
 			ELSIF (form = ProcTyp) OR (comp IN {Array, DynArr}) THEN
 				IF openClause THEN OPM.Write(CloseParen); openClause := FALSE END ;
 				IF form = ProcTyp THEN
-					IF ansi THEN OPM.Write(")"); AnsiParamList(typ^.link, FALSE)
+					IF ansi THEN OPM.Write(")"); AnsiParamList(typ^.link, FALSE, TRUE)
 					ELSE OPM.WriteString(")()")
 					END ;
 					EXIT
@@ -379,7 +385,7 @@ IF starsLevel > 10 THEN HALT(99) END ;
 		END
 	END LenList;
 
-	PROCEDURE DeclareParams(par: OPT.Object; macro: BOOLEAN);
+	PROCEDURE DeclareParams(par: OPT.Object; macro, showOberonParams: BOOLEAN);
 	BEGIN
 		OPM.Write(OpenParen);
 		WHILE par # NIL DO
@@ -388,11 +394,13 @@ IF starsLevel > 10 THEN HALT(99) END ;
 				IF (par^.mode = Var) & (par^.typ^.form = Real) THEN OPM.Write("_") END ;
 				Ident(par)
 			END ;
-			IF par^.typ^.comp = DynArr THEN
-				OPM.WriteString(Comma); LenList(par, FALSE, TRUE);
-			ELSIF (par^.mode = VarPar) & (par^.typ^.comp = Record) THEN
-				OPM.WriteString(Comma); OPM.WriteStringVar(par.name); OPM.WriteString(TagExt)
-			END ;
+			IF showOberonParams THEN
+				IF par^.typ^.comp = DynArr THEN
+					OPM.WriteString(Comma); LenList(par, FALSE, TRUE);
+				ELSIF (par^.mode = VarPar) & (par^.typ^.comp = Record) THEN
+					OPM.WriteString(Comma); OPM.WriteStringVar(par.name); OPM.WriteString(TagExt)
+				END ;
+			END;
 			par := par^.link;
 			IF par # NIL THEN OPM.WriteString(Comma) END
 		END ;
@@ -452,22 +460,23 @@ IF starsLevel > 10 THEN HALT(99) END ;
 			IF (obj^.mode = TProc) & (obj = BaseTProc(obj)) & ((OPM.currFile # OPM.HeaderFile) OR (obj^.vis = external)) THEN
 				OPM.WriteString("#define __");
 				Ident(obj);
-				DeclareParams(obj^.link, TRUE);
+				DeclareParams(obj^.link, TRUE, TRUE);
 				OPM.WriteString(" __SEND(");
 				IF obj^.link^.typ^.form = Pointer THEN
 					OPM.WriteString("__TYPEOF("); Ident(obj^.link); OPM.Write(")")
 				ELSE Ident(obj^.link); OPM.WriteString(TagExt)
 				END ;
+				OPM.WriteString(", "); Ident(obj);
 				Str1(", #, ", obj^.adr DIV 10000H);
 				IF obj^.typ = OPT.notyp THEN OPM.WriteString(VoidType) ELSE Ident(obj^.typ^.strobj) END ;
 				OPM.WriteString("(*)");
 				IF ansi THEN
-					AnsiParamList(obj^.link, FALSE);
+					AnsiParamList(obj^.link, FALSE, TRUE);
 				ELSE
 					OPM.WriteString("()");
 				END ;
 				OPM.WriteString(", ");
-				DeclareParams(obj^.link, TRUE);
+				DeclareParams(obj^.link, TRUE, TRUE);
 				OPM.Write(")"); OPM.WriteLn
 			END ;
 			DefineTProcMacros(obj^.right, empty)
@@ -538,10 +547,17 @@ IF starsLevel > 10 THEN HALT(99) END ;
 				ext := obj.conval.ext; i := 1;
 				IF (ext[1] # "#") & ~(Prefixed(ext, "extern ") OR Prefixed(ext, Extern)) THEN 
 					OPM.WriteString("#define "); Ident(obj);
-					DeclareParams(obj^.link, TRUE);
+					DeclareParams(obj^.link, TRUE, TRUE);
 					OPM.Write(Tab);
 				END ;
 				FOR i := i TO ORD(obj.conval.ext[0]) DO OPM.Write(obj.conval.ext[i]) END;
+				IF ORD(obj.conval.ext[0]) = 0 THEN
+					OPM.WriteStringVar(obj^.name); DeclareParams(obj^.link, TRUE, FALSE);
+					OPM.WriteLn; OPM.WriteString("__EXTERN ");
+					IF obj^.typ = OPT.notyp THEN OPM.WriteString(VoidType) ELSE Ident(obj^.typ^.strobj) END;
+					IF obj^.sysflag # 0 THEN OPM.WriteString(" __CALL_1") END; OPM.Write(Blank);
+					OPM.WriteStringVar(obj^.name); AnsiParamList(obj^.link, TRUE, FALSE); OPM.Write(";");
+				END;
 				OPM.WriteLn
 			END ;
 			CProcDefs(obj^.right, vis)
@@ -578,7 +594,7 @@ IF starsLevel > 10 THEN HALT(99) END ;
 			o: OPT.Object;
 	BEGIN
 		BegStat; OPM.WriteString("__TDESC("); 
-		Andent(typ);
+		Andent(typ); OPM.WriteString("__desc");
 		Str1(", #", typ^.n + 1); Str1(", #) = {__TDFLDS(", NofPtrs(typ));
 		OPM.Write('"');
 		IF typ^.strobj # NIL THEN OPM.WriteStringVar(typ^.strobj^.name) END ;
@@ -679,6 +695,41 @@ IF starsLevel > 10 THEN HALT(99) END ;
 			IF gap > 0 THEN FillGap(gap, off, align, n, curAlign) END
 		END
 	END FieldList;
+	
+	PROCEDURE WriteConstArr (VAR obj: OPT.Object; typ: OPT.Struct);
+	(* генерация конструкция "константный массив". typ - текущий уровень массива *)
+	VAR apar:  OPT.Node; i: INTEGER;
+
+		PROCEDURE WriteElem (arr: OPT.ConstArr; i: INTEGER);
+		(* выводит в листинг i-й элемент константного массива arr *)
+		BEGIN
+			WITH
+			|  arr : OPT.ConstArrOfByte DO OPM.WriteInt(arr.val[i]);
+			|  arr : OPT.ConstArrOfSInt DO OPM.WriteInt(arr.val[i]);
+			|  arr : OPT.ConstArrOfInt    DO OPM.WriteInt(arr.val[i]);
+			END;
+		END WriteElem;
+
+	BEGIN
+		OPM.WriteString("{"); (* скобка (  *)
+		i := 0;
+		IF  typ^.BaseTyp^.form # 15  THEN (* массив из простых элементов *)
+			FOR i := 0 TO typ^.n-2 DO
+						WriteElem(obj^.conval^.arr , i+obj^.conval^.intval);  OPM.WriteString(",");
+						IF (i+1) MOD 10 = 0 THEN OPM.WriteLn; BegStat END;
+			END;
+			WriteElem(obj^.conval^.arr , typ^.n-1+obj^.conval^.intval); (* последний элемент *)
+			INC(obj^.conval^.intval, typ^.n); (* учли выведенные элементы *)
+		ELSE (* массив из массивов *)
+			FOR i := 0 TO typ^.n-2 DO
+				WriteConstArr (obj, typ^.BaseTyp);  (* рекурсивная обработка подмассива *)
+				OPM.WriteString(","); OPM.WriteLn;
+				BegStat;
+			END;
+			WriteConstArr (obj, typ^.BaseTyp); (* последний элемент *)
+		END;
+		OPM.WriteString("}");
+	END WriteConstArr;
 
 	PROCEDURE IdentList (obj: OPT.Object; vis: SHORTINT);
 	(* generate var and param lists; vis: 0 all global vars, local var, 1 exported(R) var, 2 par list, 3 scope var *)
@@ -687,17 +738,23 @@ IF starsLevel > 10 THEN HALT(99) END ;
 		base := NIL; first := TRUE;
 		WHILE (obj # NIL) & (obj^.mode # TProc) DO
 			IF (vis IN {0, 2}) OR ((vis = 1) & (obj^.vis # 0)) OR ((vis = 3) & ~obj^.leaf) THEN
-				IF (obj^.typ # base) OR (obj^.vis # lastvis) THEN	(* new variable base type definition required *)
+				IF (obj^.typ # base) OR (obj^.vis # lastvis) OR
+				((obj^.conval # NIL) & (obj^.conval^.arr # NIL)) THEN	(* каждый конст.массив отдельно*)
+				(* new variable base type definition required *)
 					IF ~first THEN EndStat END ;
 					first := FALSE;
 					base := obj^.typ; lastvis := obj^.vis;
 					BegStat;
 					IF (vis = 1) & (obj^.vis # internal) THEN OPM.WriteString(Extern)
 					ELSIF (obj^.mnolev = 0) & (vis = 0) THEN
-						IF obj^.vis = internal THEN OPM.WriteString(Static)
+						IF (obj^.conval # NIL) & (obj^.conval^.arr # NIL) THEN (* конст.массив *)
+								OPM.WriteString("__CONSTARR ");
+						ELSIF obj^.vis = internal THEN OPM.WriteString(Static)
 						ELSE OPM.WriteString(Export)
 						END
-					END ;
+					ELSIF (obj^.conval # NIL) & (obj^.conval^.arr # NIL)  THEN  (* конст.массив *)
+								OPM.WriteString("__CONSTARRLOC ")
+					END;
 					IF (vis = 2) & (obj^.mode = Var) & (base^.form = Real) THEN OPM.WriteString("double")
 					ELSE DeclareBase(obj)
 					END
@@ -716,6 +773,12 @@ IF starsLevel > 10 THEN HALT(99) END ;
 					base := NIL
 				ELSIF ptrinit & (vis = 0) & (obj^.mnolev > 0) & (obj^.typ^.form = Pointer) THEN
 					OPM.WriteString(" = NIL")
+				ELSIF   (obj^.conval # NIL) & (obj^.conval^.arr # NIL)  THEN (* элементы конст.массива *)
+					OPM.WriteString(" ="); OPM.WriteLn; Indent(1);
+					BegStat;
+					obj^.conval^.intval := 0;
+					WriteConstArr (obj, obj^.typ);
+					Indent(-1);
 				END
 			END ;
 			obj := obj^.link
@@ -723,7 +786,7 @@ IF starsLevel > 10 THEN HALT(99) END ;
 		IF ~first THEN EndStat END
 	END IdentList;
 
-	PROCEDURE AnsiParamList (obj: OPT.Object; showParamNames: BOOLEAN);
+	PROCEDURE AnsiParamList (obj: OPT.Object; showParamNames, showOberonParams: BOOLEAN);
 		VAR name: ARRAY 32 OF SHORTCHAR;
 	BEGIN
 		OPM.Write("(");
@@ -731,18 +794,20 @@ IF starsLevel > 10 THEN HALT(99) END ;
 		ELSE
 			LOOP
 				DeclareBase(obj);
-				IF showParamNames THEN 
+				IF showParamNames THEN
 					OPM.Write(Blank); DeclareObj(obj, FALSE)
 				ELSE
 					name := obj^.name$;  obj^.name := ""; DeclareObj(obj, FALSE); obj^.name := name$
 				END ;
-				IF obj^.typ^.comp = DynArr THEN
-					OPM.WriteString(", LONGINT ");
-					LenList(obj, TRUE, showParamNames)
-				ELSIF (obj^.mode = VarPar) & (obj^.typ^.comp = Record) THEN
-					OPM.WriteString(", LONGINT *");
-					IF showParamNames THEN Ident(obj); OPM.WriteString(TagExt) END
-				END ;
+				IF showOberonParams THEN
+					IF obj^.typ^.comp = DynArr THEN
+						OPM.WriteString(", LONGINT ");
+						LenList(obj, TRUE, showParamNames)
+					ELSIF (obj^.mode = VarPar) & (obj^.typ^.comp = Record) THEN
+						OPM.WriteString(", LONGINT *");
+						IF showParamNames THEN Ident(obj); OPM.WriteString(TagExt) END
+					END ;
+				END;
 				IF (obj^.link = NIL) OR (obj^.link.mode = TProc) THEN EXIT END ;
 				OPM.WriteString(", ");
 				obj := obj^.link
@@ -754,13 +819,14 @@ IF starsLevel > 10 THEN HALT(99) END ;
 	PROCEDURE ProcHeader(proc: OPT.Object; define: BOOLEAN);
 	BEGIN
 		IF proc^.typ = OPT.notyp THEN OPM.WriteString(VoidType) ELSE Ident(proc^.typ^.strobj) END ;
+		IF proc^.sysflag # 0 THEN OPM.WriteString(" __CALL_1") END ;
 		OPM.Write(Blank); Ident(proc); OPM.Write(Blank);
 		IF ansi THEN
-			AnsiParamList(proc^.link, TRUE);
+			AnsiParamList(proc^.link, TRUE, TRUE);
 			IF ~define THEN OPM.Write(";") END ;
 			OPM.WriteLn;
 		ELSIF define THEN
-			DeclareParams(proc^.link, FALSE);
+			DeclareParams(proc^.link, FALSE, TRUE);
 			OPM.WriteLn;
 			Indent(1); IdentList(proc^.link, 2(* map REAL to double *)); Indent(-1)
 		ELSE OPM.WriteString("();"); OPM.WriteLn
@@ -837,7 +903,7 @@ IF starsLevel > 10 THEN HALT(99) END ;
 	PROCEDURE GenHeaderMsg;
 		VAR i: INTEGER;
 	BEGIN
-		OPM.WriteString("/* "); OPM.WriteString(HeaderMsg); 
+		OPM.WriteString("/* "); OPM.WriteString(HeaderMsg);
 		FOR i := 0 TO 31 DO
 			IF i IN OPM.glbopt THEN
 				CASE i OF	(* c.f. ScanOptions in OPM *)
@@ -882,7 +948,9 @@ IF starsLevel > 10 THEN HALT(99) END ;
 		IdentList(OPT.topScope^.scope, 0); OPM.WriteLn;
 		GenDynTypes(n, internal); OPM.WriteLn;
 		ProcPredefs(OPT.topScope^.right, 0); OPM.WriteLn;
-		CProcDefs(OPT.topScope^.right, 0); OPM.WriteLn
+		CProcDefs(OPT.topScope^.right, 0); OPM.WriteLn;
+		OPM.WriteString("/*============================================================================*/");
+		OPM.WriteLn; OPM.WriteLn;
 	END GenBdy;
 
 	PROCEDURE RegCmds(obj: OPT.Object);
@@ -905,7 +973,7 @@ IF starsLevel > 10 THEN HALT(99) END ;
 			InitImports(obj^.left);
 			IF (obj^.mode = Mod) & (obj^.mnolev # 0) THEN
 				BegStat; OPM.WriteString("__IMPORT(");
-				OPM.WriteStringVar(OPT.GlbMod[-obj^.mnolev].name); 
+				OPM.WriteStringVar(OPT.GlbMod[-obj^.mnolev].name); OPM.WriteString("__init");
 				OPM.Write(CloseParen); EndStat
 			END ;
 			InitImports(obj^.right)
@@ -924,7 +992,7 @@ IF starsLevel > 10 THEN HALT(99) END ;
 						OPM.WriteString("void EnumPtrs(void (*P)(void*))")
 					ELSE
 						OPM.WriteString("void EnumPtrs(P)"); OPM.WriteLn;
-						OPM.Write(Tab); OPM.WriteString("void (*P)();"); 
+						OPM.Write(Tab); OPM.WriteString("void (*P)();");
 					END ;
 					OPM.WriteLn;
 					BegBlk
@@ -972,7 +1040,7 @@ IF starsLevel > 10 THEN HALT(99) END ;
 		IF mainprog THEN OPM.WriteString("__INIT(argc, argv)") ELSE OPM.WriteString("__DEFMOD") END ;
 		EndStat;
 		IF mainprog & demoVersion THEN BegStat;
-			OPM.WriteString('/*don`t do it!*/ printf("DEMO VERSION: DO NOT USE THIS PROGRAM FOR ANY COMMERCIAL PURPOSE\n")'); 
+			OPM.WriteString('/*don`t do it!*/ printf("DEMO VERSION: DO NOT USE THIS PROGRAM FOR ANY COMMERCIAL PURPOSE\n")');
 			EndStat
 		END ;
 		InitImports(OPT.topScope^.right);
@@ -1044,7 +1112,7 @@ IF starsLevel > 10 THEN HALT(99) END ;
 		var := proc^.link;
 		WHILE var # NIL DO (* copy value array parameters *)
 			IF (var^.typ^.comp IN {Array, DynArr}) & (var^.mode = Var) & (var^.typ^.sysflag = 0) THEN
-				BegStat; 
+				BegStat;
 				IF var^.typ^.comp = Array THEN
 					OPM.WriteString(DupArrFunc);
 					Ident(var); OPM.WriteString(Comma);
@@ -1143,7 +1211,10 @@ IF starsLevel > 10 THEN HALT(99) END ;
 		END ;
 		IF eoBlock THEN EndBlk; OPM.WriteLn
 		ELSIF indent THEN BegStat
-		END
+		END;
+		IF eoBlock & (proc^.vis = external) THEN
+			OPM.WriteString("/*----------------------------------------------------------------------------*/"); OPM.WriteLn;
+		END;
 	END ExitProc;
 
 	PROCEDURE CompleteIdent*(obj: OPT.Object);
@@ -1218,12 +1289,12 @@ IF starsLevel > 10 THEN HALT(99) END ;
 					ELSE
 						OPM.WriteString("0x"); OPM.WriteHex (caseVal);
 					END;
-		|	SInt, Int, LInt :
+		|	Byte, SInt, Int, LInt :
 					OPM.WriteInt (caseVal);
 		END;
 		OPM.WriteString(Colon);
 	END Case;
- 
+
 	PROCEDURE SetInclude* (exclude: BOOLEAN);
 	BEGIN
 		IF exclude THEN OPM.WriteString(" &= ~"); ELSE OPM.WriteString(" |= "); END;
@@ -1352,7 +1423,7 @@ IF starsLevel > 10 THEN HALT(99) END ;
 		Enter("volatile");
 		Enter("while");
 
-(* what about common predefined names from cpp as e.g. 
+(* what about common predefined names from cpp as e.g.
                Operating System:   ibm, gcos, os, tss and unix
                Hardware:           interdata, pdp11,  u370,  u3b,
                                    u3b2,   u3b5,  u3b15,  u3b20d,

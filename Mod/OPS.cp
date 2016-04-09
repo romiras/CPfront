@@ -7,7 +7,7 @@ MODULE OfrontOPS;	(* NW, RC 6.3.89 / 18.10.92 *)		(* object model 3.6.92 *)
 	
 	CONST
 		MaxStrLen* = 256;
-		MaxIdLen = 32;
+		MaxIdLen = 40;
 	
 	TYPE
 		Name* = ARRAY MaxIdLen OF SHORTCHAR;
@@ -58,6 +58,7 @@ MODULE OfrontOPS;	(* NW, RC 6.3.89 / 18.10.92 *)		(* object model 3.6.92 *)
 		loop = 50; with = 51; exit = 52; return = 53; array = 54;
 		record = 55; pointer = 56; begin = 57; const = 58; type = 59;
 		var = 60; procedure = 61; import = 62; module = 63; eof = 64;
+		out = 71;
 
 	VAR
 		ch: SHORTCHAR;     (*current character*)
@@ -87,7 +88,7 @@ MODULE OfrontOPS;	(* NW, RC 6.3.89 / 18.10.92 *)		(* object model 3.6.92 *)
 	BEGIN i := 0;
 		REPEAT
 			name[i] := ch; INC(i); OPM.Get(ch)
-		UNTIL (ch < "0") OR ("9" < ch) & (CAP(ch) < "A") OR ("Z" < CAP(ch)) OR (i = MaxIdLen);
+		UNTIL (ch < "0") OR ("9" < ch) & (CAP(ch) < "A") OR ("Z" < CAP(ch)) & (ch # "_") OR (i = MaxIdLen);
 		IF i = MaxIdLen THEN err(240); DEC(i) END ;
 		name[i] := 0X; sym := ident
 	END Identifier;
@@ -275,6 +276,7 @@ MODULE OfrontOPS;	(* NW, RC 6.3.89 / 18.10.92 *)		(* object model 3.6.92 *)
 			| "O": Identifier(s);
 						IF name = "OR" THEN s := or
 						ELSIF name = "OF" THEN s := of
+						ELSIF name = "OUT" THEN s := out
 						END
 			| "P": Identifier(s);
 						IF name = "PROCEDURE" THEN s := procedure
@@ -296,7 +298,7 @@ MODULE OfrontOPS;	(* NW, RC 6.3.89 / 18.10.92 *)		(* object model 3.6.92 *)
 						IF name = "WHILE" THEN s := while
 						ELSIF name = "WITH" THEN s := with
 						END
-			| "G".."H", "J", "K", "Q", "S", "X".."Z": Identifier(s)
+			| "G".."H", "J", "K", "Q", "S", "X".."Z", "_": Identifier(s)
 			| "["  : s := lbrak; OPM.Get(ch)
 			| "]"  : s := rbrak; OPM.Get(ch)
 			| "^"  : s := arrow; OPM.Get(ch)
